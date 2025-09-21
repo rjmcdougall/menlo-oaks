@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>License Plate Detection Map - Protect Menlo</title>
+    
+    <!-- Mapbox GL JS -->
+    <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+    <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
+    
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        #map {
+            width: 100%;
+            height: 100vh;
+        }
+
+        .controls-panel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            z-index: 1000;
+            min-width: 300px;
+        }
+
+        .controls-panel h3 {
+            margin-bottom: 15px;
+            color: #333;
+            font-size: 18px;
+        }
+
+        .filter-group {
+            margin-bottom: 15px;
+        }
+
+        .filter-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #555;
+        }
+
+        .filter-group input,
+        .filter-group select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .date-inputs {
+            display: flex;
+            gap: 10px;
+        }
+
+        .date-inputs input {
+            flex: 1;
+        }
+
+        .btn {
+            background: #007cba;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.2s;
+        }
+
+        .btn:hover {
+            background: #005a87;
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+        }
+
+        .btn-secondary:hover {
+            background: #545b62;
+        }
+
+        .stats-panel {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            z-index: 1000;
+            min-width: 200px;
+        }
+
+        .stats-panel h4 {
+            margin-bottom: 10px;
+            color: #333;
+        }
+
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+            font-size: 14px;
+        }
+
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 2000;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            display: none;
+        }
+
+        .mapboxgl-popup-content {
+            padding: 15px;
+            max-width: 350px;
+        }
+
+        .detection-popup h4 {
+            margin-bottom: 10px;
+            color: #333;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 5px;
+        }
+
+        .detection-info {
+            margin-bottom: 15px;
+        }
+
+        .detection-info div {
+            margin-bottom: 5px;
+            font-size: 14px;
+        }
+
+        .detection-info strong {
+            color: #333;
+        }
+
+        .thumbnail-container {
+            text-align: center;
+            margin-top: 10px;
+        }
+
+        .thumbnail-container img {
+            max-width: 100%;
+            border-radius: 4px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        .confidence-high { color: #28a745; }
+        .confidence-medium { color: #ffc107; }
+        .confidence-low { color: #dc3545; }
+
+        .toggle-panel {
+            position: absolute;
+            top: 20px;
+            left: 340px;
+            z-index: 1000;
+        }
+
+        .toggle-btn {
+            background: white;
+            border: none;
+            padding: 10px;
+            border-radius: 4px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        .controls-panel.hidden {
+            display: none;
+        }
+
+        @media (max-width: 768px) {
+            .controls-panel {
+                position: fixed;
+                top: 10px;
+                left: 10px;
+                right: 10px;
+                min-width: auto;
+                max-height: 60vh;
+                overflow-y: auto;
+            }
+            
+            .stats-panel {
+                top: auto;
+                bottom: 10px;
+                right: 10px;
+                left: 10px;
+            }
+            
+            .toggle-panel {
+                left: auto;
+                right: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    
+    <div class="loading" id="loading">
+        <i class="fas fa-spinner fa-spin"></i> Loading detections...
+    </div>
+
+    <div class="toggle-panel">
+        <button class="toggle-btn" onclick="toggleControls()">
+            <i class="fas fa-sliders-h"></i>
+        </button>
+    </div>
+
+    <div class="controls-panel" id="controlsPanel">
+        <h3><i class="fas fa-filter"></i> Filter Detections</h3>
+        
+        <div class="filter-group">
+            <label>Date Range</label>
+            <div class="date-inputs">
+                <input type="date" id="startDate" title="Start Date">
+                <input type="date" id="endDate" title="End Date">
+            </div>
+        </div>
+
+        <div class="filter-group">
+            <label>Camera Location</label>
+            <select id="cameraLocation">
+                <option value="">All Locations</option>
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <label>Max Results</label>
+            <select id="maxResults">
+                <option value="50">50</option>
+                <option value="100" selected>100</option>
+                <option value="200">200</option>
+                <option value="500">500</option>
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <button class="btn" onclick="loadDetections()">
+                <i class="fas fa-search"></i> Update Map
+            </button>
+            <button class="btn btn-secondary" onclick="resetFilters()" style="margin-left: 10px;">
+                <i class="fas fa-undo"></i> Reset
+            </button>
+        </div>
+    </div>
+
+    <div class="stats-panel" id="statsPanel">
+        <h4><i class="fas fa-chart-bar"></i> Statistics</h4>
+        <div class="stat-item">
+            <span>Total Detections:</span>
+            <span id="totalCount">-</span>
+        </div>
+        <div class="stat-item">
+            <span>Date Range:</span>
+            <span id="dateRange">-</span>
+        </div>
+        <div class="stat-item">
+            <span>Cameras Active:</span>
+            <span id="cameraCount">-</span>
+        </div>
+    </div>
+
+    <script>
+        // Initialize Mapbox
+        mapboxgl.accessToken = '{{ mapbox_token }}';
+        
+        const map = new mapboxgl.Map({
+            container: 'map',
+            style: 'mapbox://styles/mapbox/streets-v11',
+            center: [-122.1817, 37.4519], // Menlo Park center
+            zoom: 13
+        });
+
+        let detections = [];
+        let markers = [];
+
+        // Initialize date inputs to last 7 days
+        function initializeDates() {
+            const endDate = new Date();
+            const startDate = new Date();
+            startDate.setDate(endDate.getDate() - 7);
+            
+            document.getElementById('endDate').value = endDate.toISOString().split('T')[0];
+            document.getElementById('startDate').value = startDate.toISOString().split('T')[0];
+        }
+
+        // Load camera locations for dropdown
+        async function loadCameras() {
+            try {
+                const response = await fetch('/api/cameras');
+                const data = await response.json();
+                
+                if (data.success) {
+                    const select = document.getElementById('cameraLocation');
+                    select.innerHTML = '<option value="">All Locations</option>';
+                    
+                    data.cameras.forEach(camera => {
+                        const option = document.createElement('option');
+                        option.value = camera.camera_location;
+                        option.textContent = `${camera.camera_location} (${camera.detection_count})`;
+                        select.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.error('Error loading cameras:', error);
+            }
+        }
+
+        // Load detections from API
+        async function loadDetections() {
+            const loading = document.getElementById('loading');
+            loading.style.display = 'block';
+            
+            try {
+                // Clear existing markers
+                markers.forEach(marker => marker.remove());
+                markers = [];
+                
+                // Get filter values
+                const startDate = document.getElementById('startDate').value;
+                const endDate = document.getElementById('endDate').value;
+                const cameraLocation = document.getElementById('cameraLocation').value;
+                const limit = document.getElementById('maxResults').value;
+                
+                // Build query parameters
+                const params = new URLSearchParams();
+                if (startDate) params.append('start_date', startDate);
+                if (endDate) params.append('end_date', endDate);
+                if (cameraLocation) params.append('camera_location', cameraLocation);
+                params.append('limit', limit);
+                
+                // Fetch data
+                const response = await fetch(`/api/detections?${params}`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    detections = data.detections;
+                    addMarkersToMap(detections);
+                    updateStats(data);
+                } else {
+                    alert('Error loading detections: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Error loading detections:', error);
+                alert('Error loading detections. Please try again.');
+            } finally {
+                loading.style.display = 'none';
+            }
+        }
+
+        // Add markers to map
+        function addMarkersToMap(detections) {
+            detections.forEach(detection => {
+                if (detection.latitude && detection.longitude) {
+                    const marker = new mapboxgl.Marker({
+                        color: getMarkerColor(detection.confidence)
+                    })
+                    .setLngLat([detection.longitude, detection.latitude])
+                    .setPopup(createPopup(detection))
+                    .addTo(map);
+                    
+                    markers.push(marker);
+                }
+            });
+            
+            // Fit map to show all markers if we have detections
+            if (detections.length > 0 && detections.some(d => d.latitude && d.longitude)) {
+                const bounds = new mapboxgl.LngLatBounds();
+                detections.forEach(detection => {
+                    if (detection.latitude && detection.longitude) {
+                        bounds.extend([detection.longitude, detection.latitude]);
+                    }
+                });
+                map.fitBounds(bounds, { padding: 50 });
+            }
+        }
+
+        // Get marker color based on confidence
+        function getMarkerColor(confidence) {
+            if (confidence >= 0.8) return '#28a745'; // Green for high confidence
+            if (confidence >= 0.6) return '#ffc107'; // Yellow for medium confidence
+            return '#dc3545'; // Red for low confidence
+        }
+
+        // Create popup content
+        function createPopup(detection) {
+            const timestamp = new Date(detection.detection_timestamp).toLocaleString();
+            const confidence = Math.round(detection.confidence * 100);
+            const confidenceClass = confidence >= 80 ? 'confidence-high' : 
+                                   confidence >= 60 ? 'confidence-medium' : 'confidence-low';
+            
+            let popupContent = `
+                <div class="detection-popup">
+                    <h4><i class="fas fa-camera"></i> ${detection.camera_name}</h4>
+                    <div class="detection-info">
+                        <div><strong>Plate:</strong> ${detection.plate_number || 'N/A'}</div>
+                        <div><strong>Confidence:</strong> <span class="${confidenceClass}">${confidence}%</span></div>
+                        <div><strong>Time:</strong> ${timestamp}</div>
+                        <div><strong>Location:</strong> ${detection.camera_location}</div>
+                        <div><strong>Camera Model:</strong> ${detection.camera_model || 'N/A'}</div>
+                        ${detection.vehicle_type ? `<div><strong>Vehicle:</strong> ${detection.vehicle_type}</div>` : ''}
+                        ${detection.vehicle_color ? `<div><strong>Color:</strong> ${detection.vehicle_color}</div>` : ''}
+                    </div>
+            `;
+            
+            // Add thumbnail if available
+            if (detection.cropped_thumbnail_public_url) {
+                popupContent += `
+                    <div class="thumbnail-container">
+                        <img src="${detection.cropped_thumbnail_public_url}" alt="Detection thumbnail" />
+                    </div>
+                `;
+            } else if (detection.thumbnail_public_url) {
+                popupContent += `
+                    <div class="thumbnail-container">
+                        <img src="${detection.thumbnail_public_url}" alt="Detection thumbnail" />
+                    </div>
+                `;
+            }
+            
+            popupContent += '</div>';
+            
+            return new mapboxgl.Popup()
+                .setHTML(popupContent);
+        }
+
+        // Update statistics panel
+        function updateStats(data) {
+            document.getElementById('totalCount').textContent = data.count;
+            
+            const startDate = data.filters.start_date || 'N/A';
+            const endDate = data.filters.end_date || 'N/A';
+            document.getElementById('dateRange').textContent = 
+                startDate !== 'N/A' && endDate !== 'N/A' ? `${startDate} to ${endDate}` : 'All time';
+            
+            const uniqueCameras = new Set(data.detections.map(d => d.camera_location)).size;
+            document.getElementById('cameraCount').textContent = uniqueCameras;
+        }
+
+        // Reset filters
+        function resetFilters() {
+            document.getElementById('cameraLocation').value = '';
+            document.getElementById('maxResults').value = '100';
+            initializeDates();
+            loadDetections();
+        }
+
+        // Toggle controls panel
+        function toggleControls() {
+            const panel = document.getElementById('controlsPanel');
+            panel.classList.toggle('hidden');
+        }
+
+        // Initialize the application
+        map.on('load', function() {
+            initializeDates();
+            loadCameras();
+            loadDetections();
+        });
+
+        // Add keyboard shortcuts
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'r' && (event.ctrlKey || event.metaKey)) {
+                event.preventDefault();
+                loadDetections();
+            }
+            if (event.key === 'f' && (event.ctrlKey || event.metaKey)) {
+                event.preventDefault();
+                toggleControls();
+            }
+        });
+    </script>
+</body>
+</html>
