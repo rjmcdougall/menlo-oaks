@@ -10,6 +10,7 @@ from typing import Dict, Any, Optional, List
 from google.cloud import bigquery
 from google.cloud.exceptions import GoogleCloudError
 
+# Use consistent logger name for better log visibility in GCP
 logger = logging.getLogger(__name__)
 
 
@@ -23,14 +24,19 @@ class BigQueryClient:
         Args:
             config: Configuration object containing BigQuery settings
         """
+        logger.info(f"🔧 Initializing BigQuery client with project: {config.GCP_PROJECT_ID}, dataset: {config.BIGQUERY_DATASET}, table: {config.BIGQUERY_TABLE}")
         self.config = config
         self.client = bigquery.Client(project=config.GCP_PROJECT_ID)
         self.dataset_id = config.BIGQUERY_DATASET
         self.table_id = config.BIGQUERY_TABLE
         
+        logger.info(f"🔧 BigQuery client created successfully")
+        
         # Ensure dataset and table exist
         self._ensure_dataset_exists()
         self._ensure_table_exists()
+        
+        logger.info(f"✅ BigQuery client initialization complete")
     
     def insert_license_plate_record(self, plate_data: Dict[str, Any]) -> str:
         """
@@ -45,30 +51,73 @@ class BigQueryClient:
         Raises:
             GoogleCloudError: If insertion fails
         """
+        plate_number = plate_data.get('plate_number', 'UNKNOWN')
+        logger.info(f"🚗 BigQuery insert_license_plate_record called for plate: {plate_number}")
+        logger.info(f"📋 Input plate_data keys: {list(plate_data.keys())}")
+        
         try:
             # Generate unique record ID
             record_id = str(uuid.uuid4())
+            logger.info(f"🆔 Generated record ID: {record_id}")
             
             # Prepare the row data
+            logger.info(f"🔄 Preparing row data for plate {plate_number}...")
             row_data = self._prepare_row_data(plate_data, record_id)
+            logger.info(f"✅ Row data prepared successfully. Keys: {list(row_data.keys())}")
+            logger.info(f"📊 Row data sample: plate_number={row_data.get('plate_number')}, detection_timestamp={row_data.get('detection_timestamp')}, confidence={row_data.get('confidence')}")
             
             # Get table reference
+            logger.info(f"🎯 Getting table reference: {self.config.GCP_PROJECT_ID}.{self.dataset_id}.{self.table_id}")
             table_ref = self.client.dataset(self.dataset_id).table(self.table_id)
             table = self.client.get_table(table_ref)
+            logger.info(f"📋 Table reference obtained. Table schema fields: {len(table.schema)}")
             
             # Insert the row
+            logger.info(f"🚀 Attempting to insert row into BigQuery for plate {plate_number}...")
             errors = self.client.insert_rows_json(table, [row_data])
+            logger.info(f"📡 BigQuery insert_rows_json call completed. Errors: {errors}")
             
             if errors:
-                error_msg = f"BigQuery insertion errors: {errors}"
+                error_msg = f"💥 BigQuery insertion errors for plate {plate_number}: {errors}"
                 logger.error(error_msg)
-                raise GoogleCloudError(error_msg)
+                # Log the row data that caused the error for debugging
+                logger.error(f"🔍 Failed row data: {row_data}")
+                
+                # Log detailed error information for each error
+                for i, error in enumerate(errors):
+                    logger.error(f"🔍 Error {i+1}: {error}")
+                    if isinstance(error, dict):
+                        if 'message' in error:
+                            logger.error(f"🔍 Error message: {error['message']}")
+                        if 'reason' in error:
+                            logger.error(f"🔍 Error reason: {error['reason']}")
+                        if 'location' in error:
+                            logger.error(f"🔍 Error location: {error['location']}")
+                
+                # Create detailed error message with first error details
+                first_error = errors[0] if errors else {}
+                if isinstance(first_error, dict) and 'message' in first_error:
+                    detailed_msg = f"{error_msg} - First error: {first_error['message']}"
+                else:
+                    detailed_msg = error_msg
+                
+                raise GoogleCloudError(detailed_msg)
             
-            logger.info(f"Successfully inserted record {record_id} for plate {plate_data['plate_number']}")
+            logger.info(f"✅ Successfully inserted record {record_id} for plate {plate_number} into BigQuery")
             return record_id
             
+        except GoogleCloudError as e:
+            # Re-raise GoogleCloudError but log the original error details
+            error_msg = f"💥 GoogleCloudError inserting license plate record for plate {plate_number}: {str(e)}"
+            logger.error(error_msg)
+            logger.error(f"🔍 Original error type: {type(e).__name__}")
+            logger.error(f"🔍 Original error details: {e}")
+            raise  # Re-raise with original error details preserved
         except Exception as e:
-            logger.error(f"Error inserting license plate record: {str(e)}")
+            error_msg = f"💥 Unexpected error inserting license plate record for plate {plate_number}: {str(e)}"
+            logger.error(error_msg)
+            logger.error(f"🔍 Exception type: {type(e).__name__}")
+            logger.error(f"🔍 Plate data keys: {list(plate_data.keys()) if plate_data else 'None'}")
             raise
     
     def _prepare_row_data(self, plate_data: Dict[str, Any], record_id: str) -> Dict[str, Any]:
@@ -108,7 +157,8 @@ class BigQueryClient:
             "vehicle_color": plate_data.get("vehicle_color", ""),
             "vehicle_color_confidence": float(plate_data.get("vehicle_color_confidence", 0.0)) if plate_data.get("vehicle_color_confidence") is not None else None,
             
-            # Camera and location info
+            # Device and camera info
+            "device_id": plate_data.get("device_id", ""),
             "camera_id": plate_data.get("camera_id", ""),
             "camera_name": plate_data.get("camera_name", ""),
             "camera_location": plate_data.get("camera_location", ""),
@@ -120,6 +170,20 @@ class BigQueryClient:
             "snapshot_url": plate_data.get("snapshot_url", ""),
             "image_width": int(plate_data.get("image_width", 0)),
             "image_height": int(plate_data.get("image_height", 0)),
+            
+            # Thumbnail storage info
+            "thumbnail_gcs_path": plate_data.get("thumbnail_gcs_path", ""),
+            "thumbnail_public_url": plate_data.get("thumbnail_public_url", ""),
+            "thumbnail_filename": plate_data.get("thumbnail_filename", ""),
+            "thumbnail_size_bytes": int(plate_data.get("thumbnail_size_bytes", 0)) if plate_data.get("thumbnail_size_bytes") else None,
+            "thumbnail_content_type": plate_data.get("thumbnail_content_type", ""),
+            "thumbnail_upload_timestamp": self._parse_timestamp(plate_data.get("thumbnail_upload_timestamp")),
+            
+            # Cropped license plate thumbnail
+            "cropped_thumbnail_gcs_path": plate_data.get("cropped_thumbnail_gcs_path", ""),
+            "cropped_thumbnail_public_url": plate_data.get("cropped_thumbnail_public_url", ""),
+            "cropped_thumbnail_filename": plate_data.get("cropped_thumbnail_filename", ""),
+            "cropped_thumbnail_size_bytes": int(plate_data.get("cropped_thumbnail_size_bytes", 0)) if plate_data.get("cropped_thumbnail_size_bytes") else None,
             
             # Legacy bounding box fields (for backward compatibility)
             "detection_box_x": float(plate_data.get("detection_box", {}).get("x", 0.0)),
@@ -134,26 +198,46 @@ class BigQueryClient:
         
         return row_data
     
-    def _parse_timestamp(self, timestamp_str: Optional[str]) -> Optional[str]:
+    def _parse_timestamp(self, timestamp_value: Optional[Any]) -> Optional[str]:
         """
-        Parse timestamp string to BigQuery DATETIME format.
+        Parse timestamp value to BigQuery DATETIME format.
+        Handles datetime objects, string (ISO format), and integer (Unix timestamp) formats.
         
         Args:
-            timestamp_str: Timestamp string in ISO format
+            timestamp_value: Timestamp as datetime object, string (ISO format), or integer (Unix timestamp in ms or seconds)
             
         Returns:
             Formatted timestamp string or None
         """
-        if not timestamp_str:
+        if not timestamp_value:
             return None
         
         try:
-            # Parse ISO format timestamp
-            dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
-            # Return in BigQuery DATETIME format (YYYY-MM-DD HH:MM:SS)
-            return dt.strftime('%Y-%m-%d %H:%M:%S')
+            # Handle datetime objects directly
+            if isinstance(timestamp_value, datetime):
+                return timestamp_value.strftime('%Y-%m-%d %H:%M:%S')
+            
+            # Handle integer timestamps (Unix timestamp in milliseconds or seconds)
+            elif isinstance(timestamp_value, (int, float)):
+                # If timestamp is too large, it's likely in milliseconds
+                if timestamp_value > 9999999999:  # > year 2286 in seconds, so likely milliseconds
+                    dt = datetime.fromtimestamp(timestamp_value / 1000.0)
+                else:
+                    dt = datetime.fromtimestamp(timestamp_value)
+                return dt.strftime('%Y-%m-%d %H:%M:%S')
+            
+            # Handle string timestamps (ISO format)
+            elif isinstance(timestamp_value, str):
+                # Parse ISO format timestamp
+                dt = datetime.fromisoformat(timestamp_value.replace('Z', '+00:00'))
+                return dt.strftime('%Y-%m-%d %H:%M:%S')
+            
+            else:
+                logger.warning(f"Unsupported timestamp type {type(timestamp_value)}: {timestamp_value}")
+                return None
+                
         except Exception as e:
-            logger.warning(f"Failed to parse timestamp {timestamp_str}: {str(e)}")
+            logger.warning(f"Failed to parse timestamp {timestamp_value}: {str(e)}")
             return None
     
     def _ensure_dataset_exists(self):
@@ -220,7 +304,8 @@ class BigQueryClient:
             bigquery.SchemaField("vehicle_color", "STRING", mode="NULLABLE", description="Vehicle color"),
             bigquery.SchemaField("vehicle_color_confidence", "FLOAT", mode="NULLABLE", description="Vehicle color confidence score (0-1)"),
             
-            # Camera and location info
+            # Device and camera info
+            bigquery.SchemaField("device_id", "STRING", mode="NULLABLE", description="UniFi Protect device ID (MAC address or device identifier)"),
             bigquery.SchemaField("camera_id", "STRING", mode="NULLABLE", description="UniFi Protect camera ID"),
             bigquery.SchemaField("camera_name", "STRING", mode="NULLABLE", description="Camera display name"),
             bigquery.SchemaField("camera_location", "STRING", mode="NULLABLE", description="Camera location description"),
@@ -232,6 +317,20 @@ class BigQueryClient:
             bigquery.SchemaField("snapshot_url", "STRING", mode="NULLABLE", description="URL to detection snapshot"),
             bigquery.SchemaField("image_width", "INTEGER", mode="NULLABLE", description="Snapshot image width"),
             bigquery.SchemaField("image_height", "INTEGER", mode="NULLABLE", description="Snapshot image height"),
+            
+            # Thumbnail storage info
+            bigquery.SchemaField("thumbnail_gcs_path", "STRING", mode="NULLABLE", description="Google Cloud Storage path to thumbnail image"),
+            bigquery.SchemaField("thumbnail_public_url", "STRING", mode="NULLABLE", description="Public URL to thumbnail image in GCS"),
+            bigquery.SchemaField("thumbnail_filename", "STRING", mode="NULLABLE", description="Filename of stored thumbnail"),
+            bigquery.SchemaField("thumbnail_size_bytes", "INTEGER", mode="NULLABLE", description="Size of thumbnail image in bytes"),
+            bigquery.SchemaField("thumbnail_content_type", "STRING", mode="NULLABLE", description="MIME content type of thumbnail image"),
+            bigquery.SchemaField("thumbnail_upload_timestamp", "DATETIME", mode="NULLABLE", description="When thumbnail was uploaded to GCS"),
+            
+            # Cropped license plate thumbnail
+            bigquery.SchemaField("cropped_thumbnail_gcs_path", "STRING", mode="NULLABLE", description="GCS path to cropped license plate image"),
+            bigquery.SchemaField("cropped_thumbnail_public_url", "STRING", mode="NULLABLE", description="Public URL to cropped license plate image"),
+            bigquery.SchemaField("cropped_thumbnail_filename", "STRING", mode="NULLABLE", description="Filename of cropped thumbnail"),
+            bigquery.SchemaField("cropped_thumbnail_size_bytes", "INTEGER", mode="NULLABLE", description="Size of cropped thumbnail in bytes"),
             
             # Legacy bounding box fields (kept for backward compatibility)
             bigquery.SchemaField("detection_box_x", "FLOAT", mode="NULLABLE", description="License plate bounding box X coordinate"),

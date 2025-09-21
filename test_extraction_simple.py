@@ -25,6 +25,8 @@ SAMPLE_WEBHOOK_DATA = {
             {'condition': {'type': 'is', 'source': 'license_plate_known'}},
             {'condition': {'type': 'is', 'source': 'license_plate_of_interest'}}
         ],
+        # Base64-encoded sample thumbnail (1x1 pixel PNG)
+        'thumbnail': 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==',
         'triggers': [
             {
                 'device': '942A6FD0AD1A',
@@ -151,6 +153,10 @@ def test_extraction_and_enrichment():
     print(f"  - Alarm name: {SAMPLE_WEBHOOK_DATA['alarm']['name']}")
     print(f"  - Triggers: {len(SAMPLE_WEBHOOK_DATA['alarm']['triggers'])}")
     print(f"  - Expected plate: {SAMPLE_WEBHOOK_DATA['alarm']['triggers'][0]['value']}")
+    print(f"  - Has thumbnail: {'Yes' if SAMPLE_WEBHOOK_DATA['alarm'].get('thumbnail') else 'No'}")
+    if SAMPLE_WEBHOOK_DATA['alarm'].get('thumbnail'):
+        thumbnail_data = SAMPLE_WEBHOOK_DATA['alarm']['thumbnail']
+        print(f"  - Thumbnail format: {thumbnail_data[:50]}...")
     print()
     
     print("=== Testing extraction function ===")
@@ -191,6 +197,159 @@ def test_extraction_and_enrichment():
     print("✅ Testing completed!")
 
 
+def test_thumbnail_processing():
+    """Test thumbnail processing functionality"""
+    print("\n=== Testing thumbnail processing ===")
+    
+    try:
+        import base64
+        
+        # Check if webhook has thumbnail data
+        alarm = SAMPLE_WEBHOOK_DATA.get("alarm", {})
+        thumbnail_data = alarm.get("thumbnail")
+        
+        if thumbnail_data:
+            print("✅ Found thumbnail data in webhook")
+            print(f"  - Thumbnail format: {thumbnail_data[:50]}...")
+            
+            # Test base64 decoding
+            if thumbnail_data.startswith("data:image/"):
+                try:
+                    # Extract the base64 data after the comma
+                    header, base64_data = thumbnail_data.split(",", 1)
+                    content_type = header.split(":")[1].split(";")[0]  # Extract "image/png"
+                    
+                    # Decode base64 to bytes
+                    image_bytes = base64.b64decode(base64_data)
+                    
+                    print(f"✅ Successfully decoded base64 thumbnail")
+                    print(f"  - Content Type: {content_type}")
+                    print(f"  - Image Size: {len(image_bytes)} bytes")
+                    print(f"  - Base64 Data Length: {len(base64_data)} characters")
+                    
+                    # Check if it's a valid PNG header
+                    if image_bytes.startswith(b'\x89PNG\r\n\x1a\n'):
+                        print(f"  - Valid PNG header detected")
+                    else:
+                        print(f"  - Not a PNG image or header not recognized")
+                        
+                except Exception as e:
+                    print(f"❌ Error decoding base64 thumbnail: {str(e)}")
+            else:
+                print(f"⚠️  Thumbnail data is not in expected data URL format")
+        else:
+            print("❌ No thumbnail data found in webhook")
+            
+    except Exception as e:
+        print(f"❌ Error testing thumbnail processing: {str(e)}")
+
+
+def test_bigquery_integration():
+    """Test BigQuery integration to verify records are being inserted with thumbnail URLs"""
+    print("\n=== Testing BigQuery integration ===")
+    
+    try:
+        from config import config
+        from bigquery_client import BigQueryClient
+        from datetime import datetime, timedelta
+        
+        # Initialize BigQuery client
+        bq_client = BigQueryClient(config)
+        print(f"✅ Connected to BigQuery: {config.GCP_PROJECT_ID}.{config.BIGQUERY_DATASET}.{config.BIGQUERY_TABLE}")
+        
+        # Query recent detections to see if our system is working
+        print("\n📊 Checking recent license plate detections...")
+        recent_detections = bq_client.query_recent_detections(hours=1, limit=5)
+        
+        if recent_detections:
+            print(f"✅ Found {len(recent_detections)} recent detection(s) in the past hour")
+            
+            # Check for records with thumbnail URLs
+            records_with_thumbnails = [r for r in recent_detections if r.get('thumbnail_public_url')]
+            
+            print(f"📸 Records with thumbnail URLs: {len(records_with_thumbnails)}/{len(recent_detections)}")
+            
+            if records_with_thumbnails:
+                print("\n🎯 Recent records with thumbnails:")
+                for i, record in enumerate(records_with_thumbnails[:3]):  # Show first 3
+                    print(f"  {i+1}. Plate: {record['plate_number']}")
+                    print(f"     Time: {record['detection_timestamp']}")
+                    print(f"     Thumbnail: {record['thumbnail_public_url'][:80]}...")
+                    if record.get('thumbnail_size_bytes'):
+                        print(f"     Size: {record['thumbnail_size_bytes']} bytes")
+                    print()
+            else:
+                print("⚠️  No recent records have thumbnail URLs - this suggests STORE_IMAGES might be disabled")
+                print("   or thumbnail processing is failing")
+        else:
+            print("⚠️  No recent detections found in the past hour")
+            print("   This could mean no license plates have been detected recently")
+        
+        # Test inserting a mock record to verify the system works
+        print("\n🧪 Testing record insertion with mock thumbnail data...")
+        mock_plate_data = {
+            "plate_number": "TEST123",
+            "confidence": 0.95,
+            "detection_timestamp": datetime.utcnow().isoformat(),
+            "processing_timestamp": datetime.utcnow().isoformat(),
+            "device_id": "test_device_123",
+            "event_id": "test_event_456",
+            "detection_type": "license_plate_test",
+            "processed_by": "test_extraction_simple.py",
+            "thumbnail_public_url": "https://storage.googleapis.com/menlo-oaks-thumbnails/test/TEST123_test_thumbnail.png",
+            "thumbnail_gcs_path": "test/TEST123_test_thumbnail.png",
+            "thumbnail_filename": "TEST123_test_thumbnail.png",
+            "thumbnail_size_bytes": 1234,
+            "thumbnail_content_type": "image/png",
+            "thumbnail_upload_timestamp": datetime.utcnow().isoformat(),
+            "vehicle_type": "car",
+            "vehicle_color": "blue"
+        }
+        
+        record_id = bq_client.insert_license_plate_record(mock_plate_data)
+        print(f"✅ Successfully inserted test record: {record_id}")
+        
+        # Verify the record was inserted and has thumbnail URL
+        print("\n🔍 Verifying inserted test record...")
+        test_records = bq_client.query_plates_by_number("TEST123", limit=1)
+        
+        if test_records and len(test_records) > 0:
+            test_record = test_records[0]
+            print("✅ Test record found in BigQuery!")
+            print(f"  Record ID: {test_record['record_id']}")
+            print(f"  Plate: {test_record['plate_number']}")
+            print(f"  Thumbnail URL: {test_record.get('thumbnail_public_url', 'NOT SET')}")
+            print(f"  Thumbnail Size: {test_record.get('thumbnail_size_bytes', 'NOT SET')} bytes")
+            print(f"  Processing System: {test_record.get('processed_by', 'NOT SET')}")
+            
+            if test_record.get('thumbnail_public_url'):
+                print("🎉 SUCCESS: Test record has thumbnail_public_url populated!")
+            else:
+                print("⚠️  WARNING: Test record missing thumbnail_public_url")
+                
+            # Clean up test record
+            print("\n🧹 Cleaning up test record...")
+            try:
+                # Delete the test record
+                delete_query = f"""
+                DELETE FROM `{config.GCP_PROJECT_ID}.{config.BIGQUERY_DATASET}.{config.BIGQUERY_TABLE}`
+                WHERE plate_number = 'TEST123' AND processed_by = 'test_extraction_simple.py'
+                """
+                job = bq_client.client.query(delete_query)
+                job.result()  # Wait for the job to complete
+                print("✅ Test record cleaned up successfully")
+            except Exception as cleanup_error:
+                print(f"⚠️  Warning: Could not clean up test record: {str(cleanup_error)}")
+                
+        else:
+            print("❌ Test record not found - insertion may have failed")
+            
+    except Exception as e:
+        print(f"❌ Error testing BigQuery integration: {str(e)}")
+        import traceback
+        print(f"   Full error: {traceback.format_exc()}")
+
+
 def test_utility_function():
     """Test the utility function from unifi_protect_client"""
     print("\n=== Testing utility function ===")
@@ -224,4 +383,6 @@ def test_utility_function():
 
 if __name__ == "__main__":
     test_extraction_and_enrichment()
+    test_thumbnail_processing()
+    test_bigquery_integration()
     test_utility_function()

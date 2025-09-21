@@ -6,7 +6,8 @@ import os
 import logging
 from typing import Optional
 
-logger = logging.getLogger(__name__)
+# Use root logger for consistent logging in GCP
+logger = logging.getLogger()
 
 
 class Config:
@@ -36,7 +37,24 @@ class Config:
         self.MIN_VEHICLE_TYPE_CONFIDENCE = float(self._get_env("MIN_VEHICLE_TYPE_CONFIDENCE", "0.6"))
         self.MIN_VEHICLE_COLOR_CONFIDENCE = float(self._get_env("MIN_VEHICLE_COLOR_CONFIDENCE", "0.6"))
         self.STORE_IMAGES = self._get_env("STORE_IMAGES", "false").lower() == "true"
-        self.GCS_BUCKET_NAME = self._get_env("GCS_BUCKET_NAME", "")
+        
+        # Google Cloud Storage Configuration
+        self.GCS_THUMBNAIL_BUCKET = self._get_env("GCS_THUMBNAIL_BUCKET", "menlo_oaks_thumbnails")
+        self.GCS_BUCKET_LOCATION = self._get_env("GCS_BUCKET_LOCATION", "US")
+        self.GCS_MAKE_PUBLIC = self._get_env("GCS_MAKE_PUBLIC", "true").lower() == "true"
+        self.GCS_MAX_FILE_SIZE = int(self._get_env("GCS_MAX_FILE_SIZE", "10485760"))  # 10MB default
+        self.GCS_DOWNLOAD_TIMEOUT = int(self._get_env("GCS_DOWNLOAD_TIMEOUT", "30"))  # 30 seconds
+        self.GCS_RETENTION_DAYS = int(self._get_env("GCS_RETENTION_DAYS", "90"))  # 90 days default
+        self.GCS_DOWNLOAD_VERIFY_SSL = self._get_env("GCS_DOWNLOAD_VERIFY_SSL", "true").lower() == "true"  # SSL verification for image downloads
+        
+        # GCS Signed URL settings (if not making public)
+        from datetime import timedelta
+        signed_url_hours = int(self._get_env("GCS_SIGNED_URL_HOURS", "24"))
+        self.GCS_SIGNED_URL_EXPIRY = timedelta(hours=signed_url_hours)
+        
+        # Thumbnail processing settings
+        self.STORE_EVENT_SNAPSHOTS = self._get_env("STORE_EVENT_SNAPSHOTS", "true").lower() == "true"
+        self.STORE_CROPPED_THUMBNAILS = self._get_env("STORE_CROPPED_THUMBNAILS", "true").lower() == "true"
         
         # Multiple plate handling
         self.MAX_PLATES_PER_EVENT = int(self._get_env("MAX_PLATES_PER_EVENT", "10"))
@@ -153,6 +171,7 @@ class Config:
         logger.info(f"  UniFi Protect Host: {self.UNIFI_PROTECT_HOST or 'Not configured'}")
         logger.info(f"  UniFi Protect Port: {self.UNIFI_PROTECT_PORT}")
         logger.info(f"  UniFi Protect Verify SSL: {self.UNIFI_PROTECT_VERIFY_SSL}")
+        logger.info(f"  GCS Download Verify SSL: {self.GCS_DOWNLOAD_VERIFY_SSL}")
         logger.info(f"  Webhook Secret Configured: {'Yes' if self.WEBHOOK_SECRET else 'No'}")
         logger.info(f"  Log Level: {self.LOG_LEVEL}")
     
@@ -205,7 +224,7 @@ class Config:
             "unifi_protect_verify_ssl": self.UNIFI_PROTECT_VERIFY_SSL,
             "min_confidence_threshold": self.MIN_CONFIDENCE_THRESHOLD,
             "store_images": self.STORE_IMAGES,
-            "gcs_bucket_name": self.GCS_BUCKET_NAME,
+            "gcs_thumbnail_bucket": self.GCS_THUMBNAIL_BUCKET,
             "log_level": self.LOG_LEVEL,
             "webhook_secret_configured": bool(self.WEBHOOK_SECRET),
             "unifi_protect_configured": self.is_unifi_protect_configured()

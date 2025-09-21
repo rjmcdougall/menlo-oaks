@@ -19,7 +19,8 @@ except ImportError:
     ClientError = Exception
     NotAuthorized = Exception
 
-logger = logging.getLogger(__name__)
+# Use root logger for consistent logging in GCP
+logger = logging.getLogger()
 
 
 class UniFiProtectClient:
@@ -222,11 +223,20 @@ class UniFiProtectClient:
             end_time = datetime.now()
             start_time = datetime.now() - timedelta(hours=hours)
             
+            # Get all events and filter for smart detections
             events = await self.client.get_events(
                 start=start_time,
-                end=end_time,
-                event_types=event_types
+                end=end_time
             )
+            
+            # Filter for smart detection events if event_types specified
+            if event_types:
+                filtered_events = []
+                for event in events:
+                    event_type = str(getattr(event, 'type', '')).lower()
+                    if any(filter_type.lower() in event_type for filter_type in event_types):
+                        filtered_events.append(event)
+                events = filtered_events
             
             event_list = []
             for event in events:
@@ -332,6 +342,197 @@ class UniFiProtectClient:
         except Exception as e:
             logger.error(f"Error getting snapshot URL: {str(e)}")
             return None
+    
+    async def get_cropped_thumbnail_url(self, camera_id: str, cropped_id: str) -> Optional[str]:
+        """
+        Get URL for a cropped thumbnail (license plate crop).
+        
+        Args:
+            camera_id: Camera ID
+            cropped_id: Cropped thumbnail ID from detection data
+            
+        Returns:
+            Cropped thumbnail URL or None if not available
+        """
+        if not self._authenticated:
+            logger.error("Not authenticated to UniFi Protect")
+            return None
+        
+        if not cropped_id:
+            logger.warning("No cropped_id provided")
+            return None
+        
+        try:
+            base_url = f"https://{self.config.UNIFI_PROTECT_HOST}:{self.config.UNIFI_PROTECT_PORT}"
+            return f"{base_url}/proxy/protect/api/cameras/{camera_id}/detections/{cropped_id}/thumbnail"
+                
+        except Exception as e:
+            logger.error(f"Error getting cropped thumbnail URL: {str(e)}")
+            return None
+    
+    async def download_thumbnail(self, thumbnail_url: str) -> Optional[bytes]:
+        """
+        Download thumbnail image data from UniFi Protect.
+        
+        Args:
+            thumbnail_url: URL to thumbnail image
+            
+        Returns:
+            Image data as bytes or None if download fails
+        """
+        if not self._authenticated or not self.client:
+            logger.error("Not authenticated to UniFi Protect")
+            return None
+        
+        try:
+            # Use the client's session for authenticated requests
+            import aiohttp
+            
+            # Get authentication headers from the client
+            headers = {}
+            if hasattr(self.client, '_session') and self.client._session:
+                # Extract cookies or tokens from the session
+                if hasattr(self.client._session, '_cookie_jar'):
+                    cookie_header = []
+                    for cookie in self.client._session._cookie_jar:
+                        cookie_header.append(f"{cookie.key}={cookie.value}")
+                    if cookie_header:
+                        headers['Cookie'] = '; '.join(cookie_header)
+            
+            # Download the image
+            timeout = aiohttp.ClientTimeout(total=30)
+            async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
+                async with session.get(thumbnail_url, ssl=self.config.UNIFI_PROTECT_VERIFY_SSL) as response:
+                    if response.status == 200:
+                        image_data = await response.read()
+                        logger.info(f"Downloaded thumbnail: {len(image_data)} bytes")
+                        return image_data
+                    else:
+                        logger.error(f"Failed to download thumbnail: HTTP {response.status}")
+                        return None
+                        
+        except Exception as e:
+            logger.error(f"Error downloading thumbnail: {str(e)}")
+            return None
+    
+    async def extract_thumbnails_from_detection(self, webhook_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Extract all available thumbnails from a detection event.
+        
+        Args:
+            webhook_data: Webhook data containing detection information
+            
+        Returns:
+            List of thumbnail information dictionaries
+        """
+        thumbnails = []
+        
+        try:
+            # Extract camera and event information
+            camera_info = webhook_data.get("camera", {})
+            event_info = webhook_data.get("event", {})
+            camera_id = camera_info.get("id", "")
+            event_id = event_info.get("id", "")
+            
+            if not camera_id:
+                logger.warning("No camera ID found in webhook data")
+                return thumbnails
+            
+            # 1. Event snapshot thumbnail (full scene)
+            if event_id:
+                event_snapshot_url = await self.get_snapshot_url(camera_id, event_id)
+                if event_snapshot_url:
+                    thumbnails.append({
+                        "type": "event_snapshot",
+                        "url": event_snapshot_url,
+                        "camera_id": camera_id,
+                        "event_id": event_id,
+                        "description": "Full event snapshot"
+                    })
+            
+            # 2. Live camera snapshot (fallback)
+            live_snapshot_url = await self.get_snapshot_url(camera_id)
+            if live_snapshot_url:
+                thumbnails.append({
+                    "type": "live_snapshot",
+                    "url": live_snapshot_url,
+                    "camera_id": camera_id,
+                    "description": "Live camera snapshot"
+                })
+            
+            # 3. Cropped license plate thumbnails from detection data
+            cropped_thumbnails = self._extract_cropped_thumbnails(webhook_data, camera_id)
+            thumbnails.extend(cropped_thumbnails)
+            
+            logger.info(f"Extracted {len(thumbnails)} thumbnail URLs from detection event")
+            return thumbnails
+            
+        except Exception as e:
+            logger.error(f"Error extracting thumbnails from detection: {str(e)}")
+            return thumbnails
+    
+    def _extract_cropped_thumbnails(self, webhook_data: Dict[str, Any], camera_id: str) -> List[Dict[str, Any]]:
+        """
+        Extract cropped thumbnail information from webhook data.
+        
+        Args:
+            webhook_data: Webhook data containing detection information
+            camera_id: Camera ID for URL generation
+            
+        Returns:
+            List of cropped thumbnail dictionaries
+        """
+        cropped_thumbnails = []
+        
+        try:
+            # Check alarm format first (triggers-based)
+            if "alarm" in webhook_data and "triggers" in webhook_data["alarm"]:
+                triggers = webhook_data["alarm"].get("triggers", [])
+                for trigger in triggers:
+                    if "license_plate" in trigger.get("key", ""):
+                        # Triggers format may not have cropped_id, but try to find it
+                        # This format typically doesn't include individual crop IDs
+                        event_id = trigger.get("eventId", "")
+                        if event_id:
+                            cropped_thumbnails.append({
+                                "type": "license_plate_crop",
+                                "url": None,  # Will need to be generated from event
+                                "camera_id": camera_id,
+                                "event_id": event_id,
+                                "plate_number": trigger.get("value", ""),
+                                "description": f"License plate crop for {trigger.get('value', 'unknown')}"
+                            })
+            
+            # Check smart detection format (metadata.detected_thumbnails)
+            metadata = webhook_data.get("metadata", {})
+            detected_thumbnails = metadata.get("detected_thumbnails", [])
+            
+            for thumbnail in detected_thumbnails:
+                if (thumbnail.get("type") == "vehicle" and 
+                    thumbnail.get("name") and
+                    thumbnail.get("cropped_id")):
+                    
+                    cropped_id = thumbnail.get("cropped_id")
+                    plate_number = thumbnail.get("name", "")
+                    
+                    # Generate cropped thumbnail URL
+                    cropped_url = f"https://{self.config.UNIFI_PROTECT_HOST}:{self.config.UNIFI_PROTECT_PORT}/proxy/protect/api/cameras/{camera_id}/detections/{cropped_id}/thumbnail"
+                    
+                    cropped_thumbnails.append({
+                        "type": "license_plate_crop",
+                        "url": cropped_url,
+                        "camera_id": camera_id,
+                        "cropped_id": cropped_id,
+                        "plate_number": plate_number,
+                        "timestamp": thumbnail.get("clock_best_wall"),
+                        "description": f"License plate crop for {plate_number}"
+                    })
+            
+            return cropped_thumbnails
+            
+        except Exception as e:
+            logger.error(f"Error extracting cropped thumbnails: {str(e)}")
+            return []
     
     def validate_webhook_data(self, webhook_data: Dict[str, Any]) -> bool:
         """
@@ -445,7 +646,7 @@ class UniFiProtectClient:
 def extract_license_plate_from_webhook(webhook_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
     Extract license plate information from UniFi Protect webhook data.
-    Updated to use the new metadata.detected_thumbnails structure.
+    Handles both alarm-based format (triggers) and smart detection format (metadata.detected_thumbnails).
     This is a standalone function that can work without the full client.
     
     Args:
@@ -455,10 +656,92 @@ def extract_license_plate_from_webhook(webhook_data: Dict[str, Any]) -> Optional
         License plate data dictionary with multiple plates or None
     """
     try:
-        # Check if this is a smart detection event
-        if webhook_data.get("type") != "smart_detection":
+        # Check for UniFi Protect alarm format first (triggers-based)
+        if "alarm" in webhook_data and "triggers" in webhook_data["alarm"]:
+            logger.info("Processing UniFi Protect alarm-based webhook in utility function")
+            return _extract_from_alarm_format(webhook_data)
+        
+        # Check for smart detection events (metadata.detected_thumbnails format)
+        if webhook_data.get("type") == "smart_detection":
+            logger.info("Processing smart detection webhook in utility function")
+            return _extract_from_smart_detection_format(webhook_data)
+        
+        logger.info("No supported webhook format found in utility function")
+        return None
+        
+    except Exception as e:
+        logger.error(f"Error extracting license plate from webhook: {str(e)}")
+        return None
+
+
+def _extract_from_alarm_format(webhook_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Extract license plate data from UniFi Protect alarm format.
+    License plate data is in alarm.triggers[].value field.
+    
+    Args:
+        webhook_data: Raw webhook data with alarm format
+        
+    Returns:
+        License plate data dictionary or None if not found
+    """
+    try:
+        alarm = webhook_data.get("alarm", {})
+        triggers = alarm.get("triggers", [])
+        
+        if not triggers:
             return None
         
+        license_plates = []
+        for trigger in triggers:
+            # Check if this trigger contains license plate data
+            key = trigger.get("key", "")
+            if key and "license_plate" in key:
+                plate_number = trigger.get("value", "")
+                if plate_number:
+                    plate_info = {
+                        "plate_number": plate_number.upper().strip(),
+                        "timestamp": trigger.get("timestamp"),
+                        "device_id": trigger.get("device", ""),
+                        "event_id": trigger.get("eventId", ""),
+                        "detection_type": key,  # license_plate_unknown, license_plate_known, etc.
+                        "zones": trigger.get("zones", {}),
+                        "detection_box": {},  # Not available in alarm format
+                        "raw_detection": trigger
+                    }
+                    
+                    # Extract group information if available
+                    if trigger.get("group", {}).get("name"):
+                        plate_info["group_name"] = trigger["group"]["name"]
+                    
+                    license_plates.append(plate_info)
+        
+        if license_plates:
+            # Return first plate for backward compatibility, but include all plates
+            primary_plate = license_plates[0]
+            primary_plate["all_plates"] = license_plates
+            primary_plate["total_plates"] = len(license_plates)
+            return primary_plate
+        
+        return None
+        
+    except Exception as e:
+        logger.error(f"Error extracting plate data from alarm format: {str(e)}")
+        return None
+
+
+def _extract_from_smart_detection_format(webhook_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Extract license plate data from smart detection format (metadata.detected_thumbnails).
+    This is the legacy format.
+    
+    Args:
+        webhook_data: Raw webhook data with smart detection format
+        
+    Returns:
+        License plate data dictionary or None if not found
+    """
+    try:
         # Extract license plates from metadata.detected_thumbnails
         metadata = webhook_data.get("metadata", {})
         if not metadata:
@@ -510,5 +793,5 @@ def extract_license_plate_from_webhook(webhook_data: Dict[str, Any]) -> Optional
         return None
         
     except Exception as e:
-        logger.error(f"Error extracting license plate from webhook: {str(e)}")
+        logger.error(f"Error extracting plate data from smart detection format: {str(e)}")
         return None
