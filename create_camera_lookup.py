@@ -345,6 +345,84 @@ class CameraLookupManager:
                     "is_active": True,
                     "notes": ""
                 },
+                # New cameras added from updated list
+                {
+                    "device_id": "942A6FD0A471",
+                    "camera_id": "942A6FD0A471",
+                    "camera_name": "West LPR",
+                    "camera_location": "1000 Colby Ave",
+                    "address": "1000 Colby Ave, Menlo Park, CA 94025",
+                    "camera_model": "UniFi Protect AI LPR",
+                    "installation_date": "2024-01-15",
+                    "is_active": True,
+                    "notes": ""
+                },
+                {
+                    "device_id": "942A6FD0B381",
+                    "camera_id": "942A6FD0B381",
+                    "camera_name": "East LPR",
+                    "camera_location": "1000 Colby Ave",
+                    "address": "1000 Colby Ave, Menlo Park, CA 94025",
+                    "camera_model": "UniFi Protect AI LPR",
+                    "installation_date": "2024-01-15",
+                    "is_active": True,
+                    "notes": ""
+                },
+                {
+                    "device_id": "28704E1F01D2",
+                    "camera_id": "28704E1F01D2",
+                    "camera_name": "West Pro",
+                    "camera_location": "1000 Colby Ave",
+                    "address": "1000 Colby Ave, Menlo Park, CA 94025",
+                    "camera_model": "UniFi Protect AI Pro",
+                    "installation_date": "2024-01-15",
+                    "is_active": True,
+                    "notes": ""
+                },
+                {
+                    "device_id": "942A6FD0A4BE",
+                    "camera_id": "942A6FD0A4BE",
+                    "camera_name": "South LPR",
+                    "camera_location": "701 Menlo Oaks Dr",
+                    "address": "701 Menlo Oaks Dr, Menlo Park, CA 94025",
+                    "camera_model": "UniFi Protect AI LPR",
+                    "installation_date": "2024-01-15",
+                    "is_active": True,
+                    "notes": ""
+                },
+                {
+                    "device_id": "942A6FD0B420",
+                    "camera_id": "942A6FD0B420",
+                    "camera_name": "North LPR",
+                    "camera_location": "701 Menlo Oaks Dr",
+                    "address": "701 Menlo Oaks Dr, Menlo Park, CA 94025",
+                    "camera_model": "UniFi Protect AI LPR",
+                    "installation_date": "2024-01-15",
+                    "is_active": True,
+                    "notes": ""
+                },
+                {
+                    "device_id": "28704E1EF0D0",
+                    "camera_id": "28704E1EF0D0",
+                    "camera_name": "South Pro",
+                    "camera_location": "701 Menlo Oaks Dr",
+                    "address": "701 Menlo Oaks Dr, Menlo Park, CA 94025",
+                    "camera_model": "UniFi Protect AI Pro",
+                    "installation_date": "2024-01-15",
+                    "is_active": True,
+                    "notes": ""
+                },
+                {
+                    "device_id": "28704E1EF819",
+                    "camera_id": "28704E1EF819",
+                    "camera_name": "Menlo Oaks x Colby Pro",
+                    "camera_location": "699 Menlo Oaks Dr",
+                    "address": "699 Menlo Oaks Dr, Menlo Park, CA 94025",
+                    "camera_model": "UniFi Protect AI Pro",
+                    "installation_date": "2024-01-15",
+                    "is_active": True,
+                    "notes": ""
+                },
             ]
 
             # Build insert payload with geocoded coordinates
