@@ -212,6 +212,7 @@ class DetectionBackfiller:
         """
         # Get camera information
         camera_info = await self.unifi_client.get_camera_by_id(event["camera_id"])
+        logger.info(f"Camera info: {camera_info}")
         
         # Parse timestamp with better fallback handling
         detection_time = None
@@ -251,7 +252,7 @@ class DetectionBackfiller:
             
             # Event information
             "event_id": event["id"],
-            "device_id": event["camera_id"],  # Use camera_id as device_id for consistency
+            "device_id": camera_info.get("mac", "") if camera_info else "",
             "cropped_id": plate_info.get("cropped_id", ""),
             
             # Metadata
