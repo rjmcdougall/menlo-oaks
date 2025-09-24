@@ -173,6 +173,32 @@
             box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
         }
 
+        /* Make thumbnails 3x bigger on desktop */
+        @media (min-width: 768px) {
+            .thumbnail-container img {
+                max-width: 300% !important;
+                width: auto !important;
+                height: auto !important;
+                min-width: 300px;
+            }
+            
+            .mapboxgl-popup-content {
+                max-width: 600px !important;
+            }
+        }
+        
+        /* Even bigger on larger screens */
+        @media (min-width: 1200px) {
+            .thumbnail-container img {
+                max-width: 400% !important;
+                min-width: 400px;
+            }
+            
+            .mapboxgl-popup-content {
+                max-width: 700px !important;
+            }
+        }
+
         .confidence-high { color: #28a745; }
         .confidence-medium { color: #ffc107; }
         .confidence-low { color: #dc3545; }
@@ -196,6 +222,83 @@
 
         .controls-panel.hidden {
             display: none;
+        }
+
+        .search-results {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: white;
+            border: 1px solid #ddd;
+            border-top: none;
+            border-radius: 0 0 4px 4px;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 1001;
+            display: none;
+        }
+
+        .search-results.show {
+            display: block;
+        }
+
+        .search-result-item {
+            padding: 10px;
+            cursor: pointer;
+            border-bottom: 1px solid #eee;
+        }
+
+        .search-result-item:hover {
+            background-color: #f5f5f5;
+        }
+
+        .search-result-item:last-child {
+            border-bottom: none;
+        }
+
+        .search-result-plate {
+            font-weight: bold;
+            color: #007cba;
+        }
+
+        .search-result-meta {
+            font-size: 12px;
+            color: #666;
+            margin-top: 2px;
+        }
+
+        .filter-group {
+            position: relative;
+        }
+
+        .detection-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .detection-item {
+            padding: 8px;
+            border-bottom: 1px solid #eee;
+            cursor: pointer;
+        }
+
+        .detection-item:hover {
+            background-color: #f0f8ff;
+        }
+
+        .detection-item:last-child {
+            border-bottom: none;
+        }
+
+        .detection-time {
+            font-weight: bold;
+            color: #333;
+        }
+
+        .detection-confidence {
+            font-size: 12px;
+            margin-left: 10px;
         }
 
         @media (max-width: 768px) {
@@ -248,6 +351,12 @@
         </div>
 
         <div class="filter-group">
+            <label>License Plate Search</label>
+            <input type="text" id="plateSearch" placeholder="Enter plate number (e.g., ABC123)" autocomplete="off">
+            <div id="plateSearchResults" class="search-results"></div>
+        </div>
+
+        <div class="filter-group">
             <label>Camera Location</label>
             <select id="cameraLocation">
                 <option value="">All Locations</option>
@@ -262,6 +371,13 @@
                 <option value="200">200</option>
                 <option value="500">500</option>
             </select>
+        </div>
+
+        <div class="filter-group">
+            <label>
+                <input type="checkbox" id="unknownVehicles" style="margin-right: 8px;">
+                Unknown Vehicles Only (< 20 detections)
+            </label>
         </div>
 
         <div class="filter-group">
@@ -303,6 +419,47 @@
 
         let detections = [];
         let markers = [];
+        let currentSearchedPlate = null;
+        let plateSearchTimeout = null;
+        
+        // Pacific timezone formatting functions
+        function formatToPacificTime(dateString) {
+            if (!dateString) return 'N/A';
+            
+            try {
+                const date = new Date(dateString);
+                return date.toLocaleString('en-US', {
+                    timeZone: 'America/Los_Angeles',
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: true
+                });
+            } catch (error) {
+                console.error('Error formatting date:', error, dateString);
+                return dateString;
+            }
+        }
+        
+        function formatToPacificDate(dateString) {
+            if (!dateString) return 'N/A';
+            
+            try {
+                const date = new Date(dateString);
+                return date.toLocaleDateString('en-US', {
+                    timeZone: 'America/Los_Angeles',
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit'
+                });
+            } catch (error) {
+                console.error('Error formatting date:', error, dateString);
+                return dateString;
+            }
+        }
 
         // Initialize date inputs to last 7 days
         function initializeDates() {
@@ -351,6 +508,7 @@
                 const endDate = document.getElementById('endDate').value;
                 const cameraLocation = document.getElementById('cameraLocation').value;
                 const limit = document.getElementById('maxResults').value;
+                const unknownOnly = document.getElementById('unknownVehicles').checked;
                 
                 // Build query parameters
                 const params = new URLSearchParams();
@@ -358,6 +516,7 @@
                 if (endDate) params.append('end_date', endDate);
                 if (cameraLocation) params.append('camera_location', cameraLocation);
                 params.append('limit', limit);
+                if (unknownOnly) params.append('unknown_only', 'true');
                 
                 // Fetch data
                 const response = await fetch(`/api/detections?${params}`);
@@ -414,16 +573,22 @@
 
         // Create popup content
         function createPopup(detection) {
-            const timestamp = new Date(detection.detection_timestamp).toLocaleString();
+            const timestamp = formatToPacificTime(detection.detection_timestamp);
             const confidence = Math.round(detection.confidence * 100);
             const confidenceClass = confidence >= 80 ? 'confidence-high' : 
                                    confidence >= 60 ? 'confidence-medium' : 'confidence-low';
+            
+            // Get total detection count for this plate by finding it in the global detections array
+            const plateDetections = detections.filter(d => d.plate_number === detection.plate_number);
+            const plateCount = plateDetections.length;
+            const plateDisplay = detection.plate_number ? 
+                (plateCount > 1 ? `${detection.plate_number} (${plateCount})` : detection.plate_number) : 'N/A';
             
             let popupContent = `
                 <div class="detection-popup">
                     <h4><i class="fas fa-camera"></i> ${detection.camera_name}</h4>
                     <div class="detection-info">
-                        <div><strong>Plate:</strong> ${detection.plate_number || 'N/A'}</div>
+                        <div><strong>Plate:</strong> ${plateDisplay}</div>
                         <div><strong>Confidence:</strong> <span class="${confidenceClass}">${confidence}%</span></div>
                         <div><strong>Time:</strong> ${timestamp}</div>
                         <div><strong>Location:</strong> ${detection.camera_location}</div>
@@ -437,13 +602,21 @@
             if (detection.cropped_thumbnail_public_url) {
                 popupContent += `
                     <div class="thumbnail-container">
-                        <img src="${detection.cropped_thumbnail_public_url}" alt="Detection thumbnail" />
+                        <div class="image-loading" style="text-align:center; padding:10px; color:#666; font-size:12px;">📷 Loading image...</div>
+                        <img src="${detection.cropped_thumbnail_public_url}" alt="Detection thumbnail" 
+                             style="display:none; max-width:100%; border-radius:4px; box-shadow:0 2px 5px rgba(0,0,0,0.1);"
+                             onload="this.style.display='block'; this.parentNode.querySelector('.image-loading').style.display='none';"
+                             onerror="handleImageError(this, '${detection.cropped_thumbnail_public_url}')" />
                     </div>
                 `;
             } else if (detection.thumbnail_public_url) {
                 popupContent += `
                     <div class="thumbnail-container">
-                        <img src="${detection.thumbnail_public_url}" alt="Detection thumbnail" />
+                        <div class="image-loading" style="text-align:center; padding:10px; color:#666; font-size:12px;">📷 Loading image...</div>
+                        <img src="${detection.thumbnail_public_url}" alt="Detection thumbnail" 
+                             style="display:none; max-width:100%; border-radius:4px; box-shadow:0 2px 5px rgba(0,0,0,0.1);"
+                             onload="this.style.display='block'; this.parentNode.querySelector('.image-loading').style.display='none';"
+                             onerror="handleImageError(this, '${detection.thumbnail_public_url}')" />
                     </div>
                 `;
             }
@@ -481,11 +654,385 @@
             panel.classList.toggle('hidden');
         }
 
+        // Plate search autocomplete functionality
+        async function searchPlates(query) {
+            console.log('searchPlates called with query:', query);
+            
+            try {
+                // Build API URL - if we have a query >= 2 chars, use it, otherwise show all plates
+                let apiUrl;
+                if (query && query.length >= 2) {
+                    apiUrl = `/api/plates/search?q=${encodeURIComponent(query)}&limit=8`;
+                } else {
+                    apiUrl = `/api/plates/search?limit=15`; // Show more when showing all plates
+                }
+                
+                console.log('API URL:', apiUrl);
+                const response = await fetch(apiUrl);
+                const data = await response.json();
+                
+                console.log('Search response:', data);
+                
+                if (data.success) {
+                    showSearchResults(data.plates);
+                } else {
+                    console.error('Search failed:', data.error);
+                    hideSearchResults();
+                }
+            } catch (error) {
+                console.error('Error searching plates:', error);
+                hideSearchResults();
+            }
+        }
+        
+        function showSearchResults(plates) {
+            console.log('showSearchResults called with plates:', plates);
+            const resultsDiv = document.getElementById('plateSearchResults');
+            
+            if (!resultsDiv) {
+                console.error('plateSearchResults element not found!');
+                return;
+            }
+            
+            if (plates.length === 0) {
+                resultsDiv.style.display = 'none';
+                resultsDiv.classList.remove('show');
+                return;
+            }
+            
+            resultsDiv.innerHTML = '';
+            plates.forEach(plate => {
+                const item = document.createElement('div');
+                item.className = 'search-result-item';
+                item.innerHTML = `
+                    <div class="search-result-plate">${plate.plate_number} (${plate.detection_count})</div>
+                    <div class="search-result-meta">${plate.detection_count} detections at ${plate.location_count} locations</div>
+                `;
+                item.onclick = () => selectPlate(plate.plate_number);
+                resultsDiv.appendChild(item);
+            });
+            
+            // Force display
+            resultsDiv.style.display = 'block';
+            resultsDiv.classList.add('show');
+            console.log('Search results displayed, element:', resultsDiv);
+        }
+        
+        function hideSearchResults() {
+            document.getElementById('plateSearchResults').classList.remove('show');
+        }
+        
+        async function selectPlate(plateNumber) {
+            document.getElementById('plateSearch').value = plateNumber;
+            hideSearchResults();
+            currentSearchedPlate = plateNumber;
+            
+            // Load plate locations and show on map
+            await loadPlateLocations(plateNumber);
+        }
+        
+        async function loadPlateLocations(plateNumber) {
+            const loading = document.getElementById('loading');
+            loading.style.display = 'block';
+            
+            try {
+                // Clear existing markers
+                markers.forEach(marker => marker.remove());
+                markers = [];
+                
+                // Fetch plate location data
+                const response = await fetch(`/api/plates/${encodeURIComponent(plateNumber)}/locations`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    addPlateLocationMarkers(data.locations, plateNumber);
+                    updateStatsForPlate(data);
+                } else {
+                    alert('Error loading plate locations: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Error loading plate locations:', error);
+                alert('Error loading plate locations. Please try again.');
+            } finally {
+                loading.style.display = 'none';
+            }
+        }
+        
+        function addPlateLocationMarkers(locations, plateNumber) {
+            locations.forEach(location => {
+                if (location.latitude && location.longitude) {
+                    const marker = new mapboxgl.Marker({
+                        color: '#007cba' // Blue for plate search results
+                    })
+                    .setLngLat([location.longitude, location.latitude])
+                    .setPopup(createPlateLocationPopup(location, plateNumber))
+                    .addTo(map);
+                    
+                    markers.push(marker);
+                }
+            });
+            
+            // Fit map to show all plate locations
+            if (locations.length > 0) {
+                const bounds = new mapboxgl.LngLatBounds();
+                locations.forEach(location => {
+                    bounds.extend([location.longitude, location.latitude]);
+                });
+                map.fitBounds(bounds, { padding: 50 });
+            }
+        }
+        
+        function createPlateLocationPopup(location, plateNumber) {
+            const firstSeen = formatToPacificDate(location.first_seen);
+            const lastSeen = formatToPacificDate(location.last_seen);
+            
+            // Create popup content with properly escaped quotes
+            let popupContent = `
+                <div class="detection-popup">
+                    <h4><i class="fas fa-map-marker-alt"></i> ${location.camera_location}</h4>
+                    <div class="detection-info">
+                        <div><strong>Plate:</strong> ${plateNumber}</div>
+                        <div><strong>Camera:</strong> ${location.camera_name}</div>
+                        <div><strong>Detections:</strong> ${location.detection_count}</div>
+                        <div><strong>First Seen:</strong> ${firstSeen}</div>
+                        <div><strong>Last Seen:</strong> ${lastSeen}</div>
+                    </div>
+                    <button class="btn" data-plate="${plateNumber}" data-location="${location.camera_location}" style="margin-top: 10px; width: 100%;" id="historyBtn">
+                        <i class="fas fa-history"></i> View Detection History
+                    </button>
+                </div>
+            `;
+            
+            const popup = new mapboxgl.Popup()
+                .setHTML(popupContent);
+            
+            // Add event listener after popup is added to DOM
+            popup.on('open', () => {
+                const btn = document.getElementById('historyBtn');
+                if (btn) {
+                    btn.addEventListener('click', () => {
+                        showDetectionHistory(plateNumber, location.camera_location);
+                    });
+                }
+            });
+            
+            return popup;
+        }
+        
+        async function showDetectionHistory(plateNumber, cameraLocation) {
+            try {
+                const response = await fetch(`/api/plates/${encodeURIComponent(plateNumber)}/detections?location=${encodeURIComponent(cameraLocation)}`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    createDetectionHistoryPopup(data.detections, plateNumber, cameraLocation);
+                } else {
+                    alert('Error loading detection history: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Error loading detection history:', error);
+                alert('Error loading detection history. Please try again.');
+            }
+        }
+        
+        function createDetectionHistoryPopup(detections, plateNumber, cameraLocation) {
+            let popupContent = `
+                <div class="detection-popup">
+                    <h4><i class="fas fa-history"></i> ${plateNumber} at ${cameraLocation}</h4>
+                    <div class="detection-list">
+            `;
+            
+            detections.forEach(detection => {
+                const timestamp = formatToPacificTime(detection.detection_timestamp);
+                const confidence = Math.round(detection.confidence * 100);
+                
+                popupContent += `
+                    <div class="detection-item" onclick="showDetectionThumbnail('${detection.record_id}', '${detection.thumbnail_public_url || detection.cropped_thumbnail_public_url}', '${detection.detection_timestamp}', ${confidence})">
+                        <div class="detection-time">${timestamp}</div>
+                        <span class="detection-confidence confidence-${confidence >= 80 ? 'high' : confidence >= 60 ? 'medium' : 'low'}">Confidence: ${confidence}%</span>
+                    </div>
+                `;
+            });
+            
+            popupContent += `
+                    </div>
+                    <button class="btn btn-secondary" onclick="map.closePopup()" style="margin-top: 10px; width: 100%;">
+                        <i class="fas fa-times"></i> Close
+                    </button>
+                </div>
+            `;
+            
+            // Create a new popup to replace the current one
+            const popup = new mapboxgl.Popup()
+                .setLngLat(map.getCenter())
+                .setHTML(popupContent)
+                .addTo(map);
+        }
+        
+        function showDetectionThumbnail(recordId, thumbnailUrl, timestamp, confidence) {
+            if (!thumbnailUrl) {
+                alert('No thumbnail available for this detection.');
+                return;
+            }
+            
+            // Format the timestamp to Pacific time
+            const formattedTimestamp = formatToPacificTime(timestamp);
+            
+            let popupContent = `
+                <div class="detection-popup">
+                    <h4><i class="fas fa-camera"></i> Detection Details</h4>
+                    <div class="detection-info">
+                        <div><strong>Time:</strong> ${formattedTimestamp}</div>
+                        <div><strong>Confidence:</strong> <span class="confidence-${confidence >= 80 ? 'high' : confidence >= 60 ? 'medium' : 'low'}">${confidence}%</span></div>
+                    </div>
+                    <div class="thumbnail-container">
+                        <div class="image-loading" style="text-align:center; padding:10px; color:#666; font-size:12px;">📷 Loading image...</div>
+                        <img src="${thumbnailUrl}" alt="Detection thumbnail" 
+                             style="display:none; max-width:100%; border-radius:4px; box-shadow:0 2px 5px rgba(0,0,0,0.1);"
+                             onload="this.style.display='block'; this.parentNode.querySelector('.image-loading').style.display='none';"
+                             onerror="handleImageError(this, '${thumbnailUrl}')" />
+                    </div>
+                    <button class="btn btn-secondary" onclick="map.closePopup()" style="margin-top: 10px; width: 100%;">
+                        <i class="fas fa-arrow-left"></i> Back
+                    </button>
+                </div>
+            `;
+            
+            const popup = new mapboxgl.Popup()
+                .setLngLat(map.getCenter())
+                .setHTML(popupContent)
+                .addTo(map);
+        }
+        
+        function updateStatsForPlate(data) {
+            document.getElementById('totalCount').textContent = data.total_detections;
+            document.getElementById('dateRange').textContent = `Plate: ${data.plate_number}`;
+            document.getElementById('cameraCount').textContent = data.total_locations;
+        }
+        
+        // Set up plate search input handlers
+        function setupPlateSearchHandlers() {
+            const plateSearchInput = document.getElementById('plateSearch');
+            
+            plateSearchInput.addEventListener('focus', (e) => {
+                console.log('Focus event triggered on plate search input');
+                // Show all plates when clicking/focusing on the input
+                clearTimeout(plateSearchTimeout);
+                plateSearchTimeout = setTimeout(() => {
+                    console.log('Calling searchPlates with empty query');
+                    searchPlates(''); // Empty query to show all plates
+                }, 100);
+            });
+            
+            plateSearchInput.addEventListener('click', (e) => {
+                console.log('Click event triggered on plate search input');
+                // Also trigger on click to be extra sure
+                clearTimeout(plateSearchTimeout);
+                plateSearchTimeout = setTimeout(() => {
+                    console.log('Calling searchPlates with empty query from click');
+                    searchPlates(''); // Empty query to show all plates
+                }, 100);
+            });
+            
+            plateSearchInput.addEventListener('input', (e) => {
+                clearTimeout(plateSearchTimeout);
+                plateSearchTimeout = setTimeout(() => {
+                    searchPlates(e.target.value.trim().toUpperCase());
+                }, 300);
+            });
+            
+            plateSearchInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    hideSearchResults();
+                    const plateNumber = e.target.value.trim().toUpperCase();
+                    if (plateNumber) {
+                        selectPlate(plateNumber);
+                    }
+                } else if (e.key === 'Escape') {
+                    hideSearchResults();
+                }
+            });
+            
+            // Hide search results when clicking outside
+            document.addEventListener('click', (e) => {
+                if (!e.target.closest('.filter-group')) {
+                    hideSearchResults();
+                }
+            });
+        }
+        
+        // Modified reset filters to clear plate search
+        function resetFilters() {
+            document.getElementById('plateSearch').value = '';
+            document.getElementById('cameraLocation').value = '';
+            document.getElementById('maxResults').value = '100';
+            document.getElementById('unknownVehicles').checked = false;
+            currentSearchedPlate = null;
+            hideSearchResults();
+            initializeDates();
+            loadDetections();
+        }
+        
+        // Enhanced image error handling function
+        function handleImageError(imgElement, originalUrl) {
+            console.log('Image failed to load:', originalUrl);
+            
+            // Hide the loading indicator
+            const loadingDiv = imgElement.parentNode.querySelector('.image-loading');
+            if (loadingDiv) {
+                loadingDiv.style.display = 'none';
+            }
+            
+            // Try alternative approaches before giving up
+            let retryCount = imgElement.dataset.retryCount ? parseInt(imgElement.dataset.retryCount) : 0;
+            
+            if (retryCount < 2) {
+                // Increment retry counter
+                imgElement.dataset.retryCount = (retryCount + 1).toString();
+                
+                // First retry: add cache-busting parameter
+                if (retryCount === 0) {
+                    const separator = originalUrl.includes('?') ? '&' : '?';
+                    const cacheBustUrl = originalUrl + separator + 'cb=' + Date.now();
+                    console.log('Retrying with cache-busting URL:', cacheBustUrl);
+                    
+                    setTimeout(() => {
+                        imgElement.src = cacheBustUrl;
+                    }, 1000);
+                    return;
+                }
+                
+                // Second retry: try the original URL again after a longer delay
+                if (retryCount === 1) {
+                    console.log('Second retry with original URL:', originalUrl);
+                    setTimeout(() => {
+                        imgElement.src = originalUrl;
+                    }, 3000);
+                    return;
+                }
+            }
+            
+            // After all retries failed, show error message
+            console.log('All retries failed for:', originalUrl);
+            imgElement.style.display = 'none';
+            imgElement.parentNode.innerHTML = `
+                <div style="text-align:center; padding:10px; color:#999; font-size:12px; border:1px dashed #ddd; border-radius:4px;">
+                    <i class="fas fa-exclamation-triangle" style="margin-bottom:5px;"></i><br>
+                    <div>Image could not be loaded</div>
+                    <a href="${originalUrl}" target="_blank" style="color:#007cba; text-decoration:none; font-size:10px;">
+                        <i class="fas fa-external-link-alt"></i> View direct link
+                    </a>
+                </div>
+            `;
+        }
+        
         // Initialize the application
         map.on('load', function() {
             initializeDates();
             loadCameras();
             loadDetections();
+            setupPlateSearchHandlers();
         });
 
         // Add keyboard shortcuts

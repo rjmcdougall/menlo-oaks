@@ -30,7 +30,8 @@ def query_detections(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     limit: int = 100,
-    camera_location: Optional[str] = None
+    camera_location: Optional[str] = None,
+    unknown_only: bool = False
 ) -> List[Dict[str, Any]]:
     """Query detection data with camera information from BigQuery.
     
@@ -39,33 +40,66 @@ def query_detections(
         end_date: End date in YYYY-MM-DD format
         limit: Maximum number of results to return
         camera_location: Filter by camera location
+        unknown_only: If True, only return plates seen < 20 times total
         
     Returns:
         List of detection records with camera metadata
     """
     try:
-        # Base query using the joined view
-        base_query = f"""
-        SELECT 
-            record_id,
-            plate_number,
-            confidence,
-            detection_timestamp,
-            vehicle_type,
-            vehicle_color,
-            event_id,
-            thumbnail_public_url,
-            cropped_thumbnail_public_url,
-            camera_name,
-            camera_location,
-            latitude,
-            longitude,
-            camera_model,
-            camera_active,
-            camera_notes
-        FROM `{PROJECT_ID}.{DATASET_ID}.detections_with_camera_info`
-        WHERE camera_active = true
-        """
+        # Build the base query - use CTE for unknown vehicles filter
+        if unknown_only:
+            base_query = f"""
+            WITH known_plates AS (
+                SELECT plate_number
+                FROM `{PROJECT_ID}.{DATASET_ID}.detections_with_camera_info`
+                WHERE plate_number IS NOT NULL AND plate_number != ''
+                GROUP BY plate_number
+                HAVING COUNT(*) >= 20
+            )
+            SELECT 
+                record_id,
+                plate_number,
+                confidence,
+                detection_timestamp,
+                vehicle_type,
+                vehicle_color,
+                event_id,
+                thumbnail_public_url,
+                cropped_thumbnail_public_url,
+                camera_name,
+                camera_location,
+                latitude,
+                longitude,
+                camera_model,
+                camera_active,
+                camera_notes
+            FROM `{PROJECT_ID}.{DATASET_ID}.detections_with_camera_info`
+            WHERE camera_active = true
+            AND plate_number NOT IN (SELECT plate_number FROM known_plates)
+            AND plate_number IS NOT NULL AND plate_number != ''
+            """
+        else:
+            base_query = f"""
+            SELECT 
+                record_id,
+                plate_number,
+                confidence,
+                detection_timestamp,
+                vehicle_type,
+                vehicle_color,
+                event_id,
+                thumbnail_public_url,
+                cropped_thumbnail_public_url,
+                camera_name,
+                camera_location,
+                latitude,
+                longitude,
+                camera_model,
+                camera_active,
+                camera_notes
+            FROM `{PROJECT_ID}.{DATASET_ID}.detections_with_camera_info`
+            WHERE camera_active = true
+            """
         
         # Add filters
         conditions = []
@@ -146,6 +180,7 @@ def api_detections():
         end_date = request.args.get('end_date')
         limit = int(request.args.get('limit', 100))
         camera_location = request.args.get('camera_location')
+        unknown_only = request.args.get('unknown_only', '').lower() == 'true'
         
         # Default to last 7 days if no dates specified
         if not start_date and not end_date:
@@ -157,7 +192,8 @@ def api_detections():
             start_date=start_date,
             end_date=end_date,
             limit=limit,
-            camera_location=camera_location
+            camera_location=camera_location,
+            unknown_only=unknown_only
         )
         
         return jsonify({
@@ -168,7 +204,8 @@ def api_detections():
                 'start_date': start_date,
                 'end_date': end_date,
                 'limit': limit,
-                'camera_location': camera_location
+                'camera_location': camera_location,
+                'unknown_only': unknown_only
             }
         })
         
@@ -213,6 +250,206 @@ def api_cameras():
         return jsonify({
             'success': True,
             'cameras': cameras
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/plates/search')
+def api_plate_search():
+    """API endpoint for plate number autocomplete search."""
+    try:
+        query_term = request.args.get('q', '').strip().upper()
+        limit = int(request.args.get('limit', 10))
+        
+        # Build the query based on whether we have a search term or not
+        if len(query_term) >= 2:
+            # Search for plates that start with or contain the query term
+            search_query = f"""
+            SELECT DISTINCT 
+                plate_number,
+                COUNT(*) as detection_count,
+                MAX(detection_timestamp) as last_seen,
+                COUNT(DISTINCT camera_location) as location_count
+            FROM `{PROJECT_ID}.{DATASET_ID}.detections_with_camera_info`
+            WHERE UPPER(plate_number) LIKE UPPER(@query_term)
+            AND plate_number IS NOT NULL
+            AND plate_number != ''
+            GROUP BY plate_number
+            ORDER BY detection_count DESC, last_seen DESC
+            LIMIT {limit}
+            """
+            
+            job_config = bigquery.QueryJobConfig(
+                query_parameters=[
+                    bigquery.ScalarQueryParameter('query_term', 'STRING', f'%{query_term}%')
+                ]
+            )
+        else:
+            # No search term - return all plates sorted by detection count
+            search_query = f"""
+            SELECT DISTINCT 
+                plate_number,
+                COUNT(*) as detection_count,
+                MAX(detection_timestamp) as last_seen,
+                COUNT(DISTINCT camera_location) as location_count
+            FROM `{PROJECT_ID}.{DATASET_ID}.detections_with_camera_info`
+            WHERE plate_number IS NOT NULL
+            AND plate_number != ''
+            GROUP BY plate_number
+            ORDER BY detection_count DESC, last_seen DESC
+            LIMIT {limit}
+            """
+            
+            job_config = bigquery.QueryJobConfig()
+        
+        query_job = client.query(search_query, job_config=job_config)
+        results = query_job.result()
+        
+        plates = []
+        for row in results:
+            plates.append({
+                'plate_number': row.plate_number,
+                'detection_count': row.detection_count,
+                'last_seen': row.last_seen.isoformat() if row.last_seen else None,
+                'location_count': row.location_count
+            })
+        
+        return jsonify({
+            'success': True,
+            'plates': plates
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/plates/<plate_number>/locations')
+def api_plate_locations(plate_number):
+    """API endpoint to get all detections of a specific plate at different locations."""
+    try:
+        plate_number = plate_number.strip().upper()
+        
+        location_query = f"""
+        SELECT 
+            camera_location,
+            camera_name,
+            latitude,
+            longitude,
+            COUNT(*) as detection_count,
+            MAX(detection_timestamp) as last_seen,
+            MIN(detection_timestamp) as first_seen
+        FROM `{PROJECT_ID}.{DATASET_ID}.detections_with_camera_info`
+        WHERE UPPER(plate_number) = @plate_number
+        AND latitude IS NOT NULL 
+        AND longitude IS NOT NULL
+        GROUP BY camera_location, camera_name, latitude, longitude
+        ORDER BY detection_count DESC, last_seen DESC
+        """
+        
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter('plate_number', 'STRING', plate_number)
+            ]
+        )
+        
+        query_job = client.query(location_query, job_config=job_config)
+        results = query_job.result()
+        
+        locations = []
+        for row in results:
+            locations.append({
+                'camera_location': row.camera_location,
+                'camera_name': row.camera_name,
+                'latitude': float(row.latitude),
+                'longitude': float(row.longitude),
+                'detection_count': row.detection_count,
+                'last_seen': row.last_seen.isoformat() if row.last_seen else None,
+                'first_seen': row.first_seen.isoformat() if row.first_seen else None
+            })
+        
+        return jsonify({
+            'success': True,
+            'plate_number': plate_number,
+            'locations': locations,
+            'total_locations': len(locations),
+            'total_detections': sum(loc['detection_count'] for loc in locations)
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/plates/<plate_number>/detections')
+def api_plate_detections(plate_number):
+    """API endpoint to get detailed detection history for a specific plate at a specific location."""
+    try:
+        plate_number = plate_number.strip().upper()
+        camera_location = request.args.get('location', '').strip()
+        
+        base_query = f"""
+        SELECT 
+            record_id,
+            detection_timestamp,
+            confidence,
+            vehicle_type,
+            vehicle_color,
+            event_id,
+            thumbnail_public_url,
+            cropped_thumbnail_public_url,
+            camera_name,
+            camera_location,
+            camera_model,
+            latitude,
+            longitude
+        FROM `{PROJECT_ID}.{DATASET_ID}.detections_with_camera_info`
+        WHERE UPPER(plate_number) = @plate_number
+        """
+        
+        params = [bigquery.ScalarQueryParameter('plate_number', 'STRING', plate_number)]
+        
+        if camera_location:
+            base_query += " AND camera_location = @camera_location"
+            params.append(bigquery.ScalarQueryParameter('camera_location', 'STRING', camera_location))
+        
+        base_query += " ORDER BY detection_timestamp DESC LIMIT 100"
+        
+        job_config = bigquery.QueryJobConfig(query_parameters=params)
+        query_job = client.query(base_query, job_config=job_config)
+        results = query_job.result()
+        
+        detections = []
+        for row in results:
+            detection = {
+                'record_id': row.record_id,
+                'detection_timestamp': row.detection_timestamp.isoformat() if row.detection_timestamp else None,
+                'confidence': float(row.confidence or 0),
+                'vehicle_type': row.vehicle_type,
+                'vehicle_color': row.vehicle_color,
+                'event_id': row.event_id,
+                'thumbnail_public_url': row.thumbnail_public_url,
+                'cropped_thumbnail_public_url': row.cropped_thumbnail_public_url,
+                'camera_name': row.camera_name,
+                'camera_location': row.camera_location,
+                'camera_model': row.camera_model,
+                'latitude': float(row.latitude) if row.latitude is not None else None,
+                'longitude': float(row.longitude) if row.longitude is not None else None
+            }
+            detections.append(detection)
+        
+        return jsonify({
+            'success': True,
+            'plate_number': plate_number,
+            'camera_location': camera_location or 'All locations',
+            'detections': detections,
+            'count': len(detections)
         })
         
     except Exception as e:
