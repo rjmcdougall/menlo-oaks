@@ -25,9 +25,233 @@
             overflow: hidden;
         }
 
+        /* Navigation Bar */
+        .nav-bar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 60px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            z-index: 10000;
+            box-shadow: 0 2px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        .nav-container {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 100%;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        .nav-brand {
+            display: flex;
+            align-items: center;
+            color: white;
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .nav-brand i {
+            margin-right: 8px;
+            font-size: 20px;
+        }
+
+        .nav-menu {
+            display: flex;
+            gap: 0;
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            padding: 12px 20px;
+            background: transparent;
+            border: none;
+            color: rgba(255, 255, 255, 0.8);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            margin: 0 4px;
+        }
+
+        .nav-item:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            transform: translateY(-1px);
+        }
+
+        .nav-item.active {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        .nav-item i {
+            margin-right: 8px;
+            font-size: 16px;
+        }
+
+        /* Main Container */
+        .main-container {
+            margin-top: 60px;
+            height: calc(100vh - 60px);
+            position: relative;
+        }
+
+        /* Sections */
+        .section {
+            display: none;
+            height: 100%;
+            width: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        .section.active {
+            display: block;
+        }
+
+        /* Map Section */
         #map {
             width: 100%;
-            height: 100vh;
+            height: 100%;
+        }
+
+        /* Stats Section */
+        #stats-section {
+            background: #f8fafc;
+            overflow-y: auto;
+        }
+
+        .section-header {
+            background: white;
+            padding: 30px;
+            border-bottom: 1px solid #e2e8f0;
+            text-align: center;
+        }
+
+        .section-header h2 {
+            color: #2d3748;
+            font-size: 28px;
+            margin-bottom: 8px;
+        }
+
+        .section-header i {
+            margin-right: 12px;
+            color: #667eea;
+        }
+
+        .section-description {
+            color: #718096;
+            font-size: 16px;
+        }
+
+        .stats-content {
+            padding: 30px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 24px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            border: 1px solid #e2e8f0;
+            display: flex;
+            align-items: center;
+            transition: all 0.3s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .stat-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 16px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .stat-icon i {
+            font-size: 20px;
+        }
+
+        .stat-info {
+            flex: 1;
+        }
+
+        .stat-number {
+            font-size: 24px;
+            font-weight: 700;
+            color: #2d3748;
+            margin-bottom: 4px;
+        }
+
+        .stat-label {
+            color: #718096;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .stats-details {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            border: 1px solid #e2e8f0;
+        }
+
+        .stats-details h3 {
+            color: #2d3748;
+            margin-bottom: 16px;
+            font-size: 18px;
+        }
+
+        .activity-list {
+            color: #718096;
+            font-style: italic;
+        }
+
+        /* Controls Section */
+        #controls-section {
+            background: #f8fafc;
+            overflow-y: auto;
+        }
+
+        .controls-content {
+            padding: 30px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .controls-panel-new {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            border: 1px solid #e2e8f0;
         }
 
         .controls-panel {
@@ -301,7 +525,46 @@
             margin-left: 10px;
         }
 
+        /* Mobile responsiveness */
         @media (max-width: 768px) {
+            .nav-container {
+                padding: 0 15px;
+            }
+            
+            .nav-brand span {
+                display: none;
+            }
+            
+            .nav-item span {
+                display: none;
+            }
+            
+            .nav-item {
+                padding: 12px 15px;
+                margin: 0 2px;
+            }
+            
+            .section-header {
+                padding: 20px 15px;
+            }
+            
+            .section-header h2 {
+                font-size: 24px;
+            }
+            
+            .stats-content, .controls-content {
+                padding: 20px 15px;
+            }
+            
+            .stats-grid {
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                gap: 15px;
+            }
+            
+            .stat-card {
+                padding: 20px;
+            }
+            
             .controls-panel {
                 position: fixed;
                 top: 10px;
@@ -324,72 +587,179 @@
                 right: 20px;
             }
         }
+        
+        /* Tablet responsiveness */
+        @media (min-width: 769px) and (max-width: 1024px) {
+            .nav-container {
+                max-width: 100%;
+                padding: 0 30px;
+            }
+            
+            .stats-content, .controls-content {
+                padding: 30px;
+                max-width: 900px;
+            }
+            
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
     </style>
 </head>
 <body>
-    <div id="map"></div>
-    
-    <div class="loading" id="loading">
-        <i class="fas fa-spinner fa-spin"></i> Loading detections...
-    </div>
-
-    <div class="toggle-panel">
-        <button class="toggle-btn" onclick="toggleControls()">
-            <i class="fas fa-sliders-h"></i>
-        </button>
-    </div>
-
-    <div class="controls-panel" id="controlsPanel">
-        <h3><i class="fas fa-filter"></i> Filter Detections</h3>
-        
-        <div class="filter-group">
-            <label>Date Range</label>
-            <div class="date-inputs">
-                <input type="date" id="startDate" title="Start Date">
-                <input type="date" id="endDate" title="End Date">
+    <!-- Navigation Bar -->
+    <nav class="nav-bar">
+        <div class="nav-container">
+            <div class="nav-brand">
+                <i class="fas fa-shield-alt"></i>
+                <span>Protect Menlo</span>
+            </div>
+            <div class="nav-menu">
+                <button class="nav-item active" data-section="map">
+                    <i class="fas fa-map-marked-alt"></i>
+                    <span>Map</span>
+                </button>
+                <button class="nav-item" data-section="stats">
+                    <i class="fas fa-chart-bar"></i>
+                    <span>Stats</span>
+                </button>
+                <button class="nav-item" data-section="controls">
+                    <i class="fas fa-sliders-h"></i>
+                    <span>Controls</span>
+                </button>
             </div>
         </div>
+    </nav>
 
-        <div class="filter-group">
-            <label>License Plate Search</label>
-            <input type="text" id="plateSearch" placeholder="Enter plate number (e.g., ABC123)" autocomplete="off">
-            <div id="plateSearchResults" class="search-results"></div>
-        </div>
+    <!-- Main Content Container -->
+    <div class="main-container">
+        <!-- Map Section (Default) -->
+        <section id="map-section" class="section active">
+            <div id="map"></div>
+            
+            <div class="loading" id="loading">
+                <i class="fas fa-spinner fa-spin"></i> Loading detections...
+            </div>
+        </section>
 
-        <div class="filter-group">
-            <label>Camera Location</label>
-            <select id="cameraLocation">
-                <option value="">All Locations</option>
-            </select>
-        </div>
+        <!-- Stats Section -->
+        <section id="stats-section" class="section">
+            <div class="section-header">
+                <h2><i class="fas fa-chart-bar"></i> Detection Statistics</h2>
+                <p class="section-description">View detailed statistics about license plate detections</p>
+            </div>
+            <div class="stats-content">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <i class="fas fa-camera"></i>
+                        </div>
+                        <div class="stat-info">
+                            <div class="stat-number" id="totalDetectionsStat">-</div>
+                            <div class="stat-label">Total Detections</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <i class="fas fa-calendar-alt"></i>
+                        </div>
+                        <div class="stat-info">
+                            <div class="stat-number" id="dateRangeStat">-</div>
+                            <div class="stat-label">Date Range</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <i class="fas fa-video"></i>
+                        </div>
+                        <div class="stat-info">
+                            <div class="stat-number" id="cameraCountStat">-</div>
+                            <div class="stat-label">Active Cameras</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <i class="fas fa-car"></i>
+                        </div>
+                        <div class="stat-info">
+                            <div class="stat-number" id="uniquePlatesStat">-</div>
+                            <div class="stat-label">Unique Plates</div>
+                        </div>
+                    </div>
+                </div>
+                <!-- Add more detailed stats here -->
+                <div class="stats-details">
+                    <h3>Recent Activity</h3>
+                    <div id="recentActivity" class="activity-list">
+                        <!-- Recent activity will be populated here -->
+                    </div>
+                </div>
+            </div>
+        </section>
 
-        <div class="filter-group">
-            <label>Max Results</label>
-            <select id="maxResults">
-                <option value="50">50</option>
-                <option value="100" selected>100</option>
-                <option value="200">200</option>
-                <option value="500">500</option>
-            </select>
-        </div>
+        <!-- Controls Section -->
+        <section id="controls-section" class="section">
+            <div class="section-header">
+                <h2><i class="fas fa-sliders-h"></i> Filter Controls</h2>
+                <p class="section-description">Configure filters and search options for detection data</p>
+            </div>
+            <div class="controls-content">
+                <div class="controls-panel-new" id="controlsPanel">
+                    <div class="filter-group">
+                        <label>Date Range</label>
+                        <div class="date-inputs">
+                            <input type="date" id="startDate" title="Start Date">
+                            <input type="date" id="endDate" title="End Date">
+                        </div>
+                    </div>
 
-        <div class="filter-group">
-            <label>
-                <input type="checkbox" id="unknownVehicles" style="margin-right: 8px;">
-                Unknown Vehicles Only (< 20 detections)
-            </label>
-        </div>
+                    <div class="filter-group">
+                        <label>License Plate Search</label>
+                        <input type="text" id="plateSearch" placeholder="Enter plate number (e.g., ABC123)" autocomplete="off">
+                        <div id="plateSearchResults" class="search-results"></div>
+                    </div>
 
-        <div class="filter-group">
-            <button class="btn" onclick="loadDetections()">
-                <i class="fas fa-search"></i> Update Map
-            </button>
-            <button class="btn btn-secondary" onclick="resetFilters()" style="margin-left: 10px;">
-                <i class="fas fa-undo"></i> Reset
-            </button>
-        </div>
+                    <div class="filter-group">
+                        <label>Camera Location</label>
+                        <select id="cameraLocation">
+                            <option value="">All Locations</option>
+                        </select>
+                    </div>
+
+                    <div class="filter-group">
+                        <label>Max Results</label>
+                        <select id="maxResults">
+                            <option value="50">50</option>
+                            <option value="100" selected>100</option>
+                            <option value="200">200</option>
+                            <option value="500">500</option>
+                        </select>
+                    </div>
+
+                    <div class="filter-group">
+                        <label>
+                            <input type="checkbox" id="unknownVehicles" style="margin-right: 8px;">
+                            Unknown Vehicles Only (< 20 detections)
+                        </label>
+                    </div>
+
+                    <div class="filter-group">
+                        <button class="btn" onclick="loadDetections(); showSection('map');">
+                            <i class="fas fa-search"></i> Update Map
+                        </button>
+                        <button class="btn btn-secondary" onclick="resetFilters()" style="margin-left: 10px;">
+                            <i class="fas fa-undo"></i> Reset
+                        </button>
+                        <button class="btn" onclick="testThumbnailFunction()" style="margin-left: 10px; background: #dc3545;">
+                            <i class="fas fa-bug"></i> Test Thumbnail
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
     </div>
 
+    <!-- Keep the old stats panel for map section -->
     <div class="stats-panel" id="statsPanel">
         <h4><i class="fas fa-chart-bar"></i> Statistics</h4>
         <div class="stat-item">
@@ -600,25 +970,29 @@
             
             // Add thumbnail if available
             if (detection.cropped_thumbnail_public_url) {
+                console.log('Adding cropped thumbnail to popup:', detection.cropped_thumbnail_public_url);
                 popupContent += `
                     <div class="thumbnail-container">
                         <div class="image-loading" style="text-align:center; padding:10px; color:#666; font-size:12px;">📷 Loading image...</div>
                         <img src="${detection.cropped_thumbnail_public_url}" alt="Detection thumbnail" 
                              style="display:none; max-width:100%; border-radius:4px; box-shadow:0 2px 5px rgba(0,0,0,0.1);"
-                             onload="this.style.display='block'; this.parentNode.querySelector('.image-loading').style.display='none';"
-                             onerror="handleImageError(this, '${detection.cropped_thumbnail_public_url}')" />
+                             onload="console.log('Popup thumbnail loaded:', '${detection.cropped_thumbnail_public_url}'); this.style.display='block'; this.parentNode.querySelector('.image-loading').style.display='none';"
+                             onerror="console.log('Popup thumbnail failed:', '${detection.cropped_thumbnail_public_url}'); handleImageError(this, '${detection.cropped_thumbnail_public_url}')" />
                     </div>
                 `;
             } else if (detection.thumbnail_public_url) {
+                console.log('Adding regular thumbnail to popup:', detection.thumbnail_public_url);
                 popupContent += `
                     <div class="thumbnail-container">
                         <div class="image-loading" style="text-align:center; padding:10px; color:#666; font-size:12px;">📷 Loading image...</div>
                         <img src="${detection.thumbnail_public_url}" alt="Detection thumbnail" 
                              style="display:none; max-width:100%; border-radius:4px; box-shadow:0 2px 5px rgba(0,0,0,0.1);"
-                             onload="this.style.display='block'; this.parentNode.querySelector('.image-loading').style.display='none';"
-                             onerror="handleImageError(this, '${detection.thumbnail_public_url}')" />
+                             onload="console.log('Popup thumbnail loaded:', '${detection.thumbnail_public_url}'); this.style.display='block'; this.parentNode.querySelector('.image-loading').style.display='none';"
+                             onerror="console.log('Popup thumbnail failed:', '${detection.thumbnail_public_url}'); handleImageError(this, '${detection.thumbnail_public_url}')" />
                     </div>
                 `;
+            } else {
+                console.log('No thumbnail URLs available for detection:', detection);
             }
             
             popupContent += '</div>';
@@ -659,15 +1033,31 @@
             console.log('searchPlates called with query:', query);
             
             try {
-                // Build API URL - if we have a query >= 2 chars, use it, otherwise show all plates
-                let apiUrl;
+                // Get current filter values to apply to plate search
+                const startDate = document.getElementById('startDate').value;
+                const endDate = document.getElementById('endDate').value;
+                const cameraLocation = document.getElementById('cameraLocation').value;
+                
+                // Build query parameters
+                const params = new URLSearchParams();
+                
+                // Add search query and limit
                 if (query && query.length >= 2) {
-                    apiUrl = `/api/plates/search?q=${encodeURIComponent(query)}&limit=8`;
+                    params.append('q', query);
+                    params.append('limit', '8');
                 } else {
-                    apiUrl = `/api/plates/search?limit=15`; // Show more when showing all plates
+                    params.append('limit', '15'); // Show more when showing all plates
                 }
                 
-                console.log('API URL:', apiUrl);
+                // Add filter parameters
+                if (startDate) params.append('start_date', startDate);
+                if (endDate) params.append('end_date', endDate);
+                if (cameraLocation) params.append('camera_location', cameraLocation);
+                
+                // Build final API URL
+                const apiUrl = `/api/plates/search?${params}`;
+                console.log('API URL with filters:', apiUrl);
+                
                 const response = await fetch(apiUrl);
                 const data = await response.json();
                 
@@ -719,7 +1109,9 @@
         }
         
         function hideSearchResults() {
-            document.getElementById('plateSearchResults').classList.remove('show');
+            const resultsDiv = document.getElementById('plateSearchResults');
+            resultsDiv.classList.remove('show');
+            resultsDiv.style.display = 'none';
         }
         
         async function selectPlate(plateNumber) {
@@ -740,8 +1132,21 @@
                 markers.forEach(marker => marker.remove());
                 markers = [];
                 
-                // Fetch plate location data
-                const response = await fetch(`/api/plates/${encodeURIComponent(plateNumber)}/locations`);
+                // Get filter values to apply to plate search
+                const startDate = document.getElementById('startDate').value;
+                const endDate = document.getElementById('endDate').value;
+                const cameraLocation = document.getElementById('cameraLocation').value;
+                
+                // Build query parameters for plate locations
+                const params = new URLSearchParams();
+                if (startDate) params.append('start_date', startDate);
+                if (endDate) params.append('end_date', endDate);
+                if (cameraLocation) params.append('camera_location', cameraLocation);
+                
+                // Fetch plate location data with filters
+                const apiUrl = `/api/plates/${encodeURIComponent(plateNumber)}/locations?${params}`;
+                console.log('Loading plate locations with filters:', apiUrl);
+                const response = await fetch(apiUrl);
                 const data = await response.json();
                 
                 if (data.success) {
@@ -820,13 +1225,32 @@
         }
         
         async function showDetectionHistory(plateNumber, cameraLocation) {
+            console.log('showDetectionHistory called for plate:', plateNumber, 'at location:', cameraLocation);
+            
             try {
-                const response = await fetch(`/api/plates/${encodeURIComponent(plateNumber)}/detections?location=${encodeURIComponent(cameraLocation)}`);
+                // Get filter values to apply to detection history
+                const startDate = document.getElementById('startDate').value;
+                const endDate = document.getElementById('endDate').value;
+                
+                // Build query parameters for detection history
+                const params = new URLSearchParams();
+                params.append('location', encodeURIComponent(cameraLocation));
+                if (startDate) params.append('start_date', startDate);
+                if (endDate) params.append('end_date', endDate);
+                
+                // Fetch detection history with filters
+                const apiUrl = `/api/plates/${encodeURIComponent(plateNumber)}/detections?${params}`;
+                console.log('Loading detection history with filters:', apiUrl);
+                const response = await fetch(apiUrl);
                 const data = await response.json();
                 
+                console.log('Detection history API response:', data);
+                
                 if (data.success) {
+                    console.log('Successfully loaded', data.detections.length, 'detections for history');
                     createDetectionHistoryPopup(data.detections, plateNumber, cameraLocation);
                 } else {
+                    console.error('API returned error:', data.error);
                     alert('Error loading detection history: ' + data.error);
                 }
             } catch (error) {
@@ -836,18 +1260,26 @@
         }
         
         function createDetectionHistoryPopup(detections, plateNumber, cameraLocation) {
+            // Close any existing popup first
+            const existingPopup = document.querySelector('.mapboxgl-popup');
+            if (existingPopup) {
+                existingPopup.remove();
+            }
+            
+            console.log('Creating detection history popup for', plateNumber, 'with', detections.length, 'detections');
+            
             let popupContent = `
                 <div class="detection-popup">
                     <h4><i class="fas fa-history"></i> ${plateNumber} at ${cameraLocation}</h4>
                     <div class="detection-list">
             `;
             
-            detections.forEach(detection => {
+            detections.forEach((detection, index) => {
                 const timestamp = formatToPacificTime(detection.detection_timestamp);
                 const confidence = Math.round(detection.confidence * 100);
                 
                 popupContent += `
-                    <div class="detection-item" onclick="showDetectionThumbnail('${detection.record_id}', '${detection.thumbnail_public_url || detection.cropped_thumbnail_public_url}', '${detection.detection_timestamp}', ${confidence})">
+                    <div class="detection-item" data-detection-index="${index}">
                         <div class="detection-time">${timestamp}</div>
                         <span class="detection-confidence confidence-${confidence >= 80 ? 'high' : confidence >= 60 ? 'medium' : 'low'}">Confidence: ${confidence}%</span>
                     </div>
@@ -856,23 +1288,105 @@
             
             popupContent += `
                     </div>
-                    <button class="btn btn-secondary" onclick="map.closePopup()" style="margin-top: 10px; width: 100%;">
+                    <button class="btn btn-secondary" id="close-popup-btn" style="margin-top: 10px; width: 100%;">
                         <i class="fas fa-times"></i> Close
                     </button>
                 </div>
             `;
             
+            // Get current map center or use default coordinates
+            let centerCoords;
+            try {
+                centerCoords = map.getCenter();
+                console.log('Using map center for popup:', centerCoords);
+            } catch (error) {
+                console.log('Failed to get map center, using default:', error);
+                centerCoords = [-122.1817, 37.4519]; // Menlo Park default
+            }
+            
             // Create a new popup to replace the current one
             const popup = new mapboxgl.Popup()
-                .setLngLat(map.getCenter())
+                .setLngLat(centerCoords)
                 .setHTML(popupContent)
                 .addTo(map);
+            
+            // Add event listeners after popup is added to DOM
+            // Use setTimeout to ensure the DOM is fully rendered
+            setTimeout(() => {
+                // Add click handler for close button
+                const closeBtn = document.getElementById('close-popup-btn');
+                console.log('Close button found:', !!closeBtn);
+                if (closeBtn) {
+                    closeBtn.addEventListener('click', () => {
+                        console.log('Close button clicked');
+                        map.closePopup();
+                    });
+                }
+                
+                // Add click handlers for detection items
+                const detectionItems = document.querySelectorAll('.detection-item[data-detection-index]');
+                console.log('Found detection items:', detectionItems.length);
+                console.log('Detection items:', detectionItems);
+                
+                detectionItems.forEach((item, index) => {
+                    console.log('Adding event listener to item', index, item);
+                    console.log('Detection for index', index, ':', detections[index]);
+                    item.addEventListener('click', (event) => {
+                        console.log('Detection item clicked, index:', index);
+                        console.log('Event target:', event.target);
+                        const detection = detections[index];
+                        console.log('Detection data:', detection);
+                        
+                        const thumbnailUrl = detection.thumbnail_public_url || detection.cropped_thumbnail_public_url;
+                        console.log('Thumbnail URL:', thumbnailUrl);
+                        console.log('Thumbnail URLs available:', {
+                            thumbnail_public_url: detection.thumbnail_public_url,
+                            cropped_thumbnail_public_url: detection.cropped_thumbnail_public_url
+                        });
+                        
+                        if (thumbnailUrl) {
+                            console.log('Calling showDetectionThumbnail with:', {
+                                recordId: detection.record_id,
+                                thumbnailUrl,
+                                timestamp: detection.detection_timestamp,
+                                confidence: Math.round(detection.confidence * 100),
+                                plateNumber,
+                                cameraLocation
+                            });
+                            
+                            showDetectionThumbnail(
+                                detection.record_id,
+                                thumbnailUrl,
+                                detection.detection_timestamp,
+                                Math.round(detection.confidence * 100),
+                                plateNumber,
+                                cameraLocation
+                            );
+                        } else {
+                            console.log('No thumbnail available for this detection');
+                            alert('No thumbnail available for this detection.');
+                        }
+                    });
+                });
+            }, 100);
         }
         
-        function showDetectionThumbnail(recordId, thumbnailUrl, timestamp, confidence) {
+        function showDetectionThumbnail(recordId, thumbnailUrl, timestamp, confidence, plateNumber, cameraLocation) {
+            console.log('showDetectionThumbnail called with parameters:', {
+                recordId, thumbnailUrl, timestamp, confidence, plateNumber, cameraLocation
+            });
+            
             if (!thumbnailUrl) {
+                console.log('No thumbnail URL provided');
                 alert('No thumbnail available for this detection.');
                 return;
+            }
+            
+            // Close any existing popup first
+            const existingPopup = document.querySelector('.mapboxgl-popup');
+            if (existingPopup) {
+                console.log('Removing existing popup');
+                existingPopup.remove();
             }
             
             // Format the timestamp to Pacific time
@@ -889,19 +1403,41 @@
                         <div class="image-loading" style="text-align:center; padding:10px; color:#666; font-size:12px;">📷 Loading image...</div>
                         <img src="${thumbnailUrl}" alt="Detection thumbnail" 
                              style="display:none; max-width:100%; border-radius:4px; box-shadow:0 2px 5px rgba(0,0,0,0.1);"
-                             onload="this.style.display='block'; this.parentNode.querySelector('.image-loading').style.display='none';"
-                             onerror="handleImageError(this, '${thumbnailUrl}')" />
+                             onload="console.log('Thumbnail image loaded successfully:', '${thumbnailUrl}'); this.style.display='block'; this.parentNode.querySelector('.image-loading').style.display='none';"
+                             onerror="console.log('Thumbnail image failed to load:', '${thumbnailUrl}'); handleImageError(this, '${thumbnailUrl}')" />
                     </div>
-                    <button class="btn btn-secondary" onclick="map.closePopup()" style="margin-top: 10px; width: 100%;">
+                    <button class="btn btn-secondary" id="back-to-history-btn" style="margin-top: 10px; width: 100%;">
                         <i class="fas fa-arrow-left"></i> Back
                     </button>
                 </div>
             `;
             
+            // Get current map center or use default coordinates
+            let centerCoords;
+            try {
+                centerCoords = map.getCenter();
+                console.log('Using map center for thumbnail popup:', centerCoords);
+            } catch (error) {
+                console.log('Failed to get map center for thumbnail, using default:', error);
+                centerCoords = [-122.1817, 37.4519]; // Menlo Park default
+            }
+            
             const popup = new mapboxgl.Popup()
-                .setLngLat(map.getCenter())
+                .setLngLat(centerCoords)
                 .setHTML(popupContent)
                 .addTo(map);
+            
+            // Add event listener for back button after popup is rendered
+            setTimeout(() => {
+                const backBtn = document.getElementById('back-to-history-btn');
+                console.log('Back button found:', !!backBtn);
+                if (backBtn) {
+                    backBtn.addEventListener('click', () => {
+                        console.log('Back button clicked, returning to history');
+                        showDetectionHistory(plateNumber, cameraLocation);
+                    });
+                }
+            }, 100);
         }
         
         function updateStatsForPlate(data) {
@@ -974,6 +1510,23 @@
             loadDetections();
         }
         
+        // Test function for debugging thumbnails
+        function testThumbnailFunction() {
+            console.log('TEST: Testing thumbnail functionality');
+            
+            // Show sample detection history first
+            const testDetections = [{
+                record_id: 'test-123',
+                detection_timestamp: new Date().toISOString(),
+                confidence: 0.85,
+                thumbnail_public_url: 'https://via.placeholder.com/300x200?text=Test+Thumbnail',
+                cropped_thumbnail_public_url: null
+            }];
+            
+            console.log('TEST: Creating test detection history popup');
+            createDetectionHistoryPopup(testDetections, 'TEST123', 'Test Location');
+        }
+        
         // Enhanced image error handling function
         function handleImageError(imgElement, originalUrl) {
             console.log('Image failed to load:', originalUrl);
@@ -1027,12 +1580,133 @@
             `;
         }
         
+        // Navigation functionality
+        function showSection(sectionName) {
+            // Hide all sections
+            document.querySelectorAll('.section').forEach(section => {
+                section.classList.remove('active');
+            });
+            
+            // Show the selected section
+            const targetSection = document.getElementById(sectionName + '-section');
+            if (targetSection) {
+                targetSection.classList.add('active');
+            }
+            
+            // Update navigation active state
+            document.querySelectorAll('.nav-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            
+            const activeNavItem = document.querySelector(`[data-section="${sectionName}"]`);
+            if (activeNavItem) {
+                activeNavItem.classList.add('active');
+            }
+            
+            // Handle special cases for each section
+            if (sectionName === 'map') {
+                console.log('Switching to map section');
+                // Resize the map when switching to map section
+                setTimeout(() => {
+                    console.log('Resizing map and making it visible');
+                    if (map && map.resize) {
+                        map.resize();
+                        console.log('Map resized successfully');
+                    } else {
+                        console.error('Map object not available for resize');
+                    }
+                    // Show the old stats panel for map view
+                    document.getElementById('statsPanel').style.display = 'block';
+                }, 100);
+            } else {
+                console.log('Switching to non-map section:', sectionName);
+                // Hide the old stats panel for other views
+                document.getElementById('statsPanel').style.display = 'none';
+            }
+            
+            // Load stats data when switching to stats section
+            if (sectionName === 'stats') {
+                loadStatsData();
+            }
+        }
+        
+        // Enhanced stats loading function
+        async function loadStatsData() {
+            try {
+                // Get current filter values
+                const startDate = document.getElementById('startDate').value;
+                const endDate = document.getElementById('endDate').value;
+                const cameraLocation = document.getElementById('cameraLocation').value;
+                
+                // Build query parameters
+                const params = new URLSearchParams();
+                if (startDate) params.append('start_date', startDate);
+                if (endDate) params.append('end_date', endDate);
+                if (cameraLocation) params.append('camera_location', cameraLocation);
+                params.append('limit', '1000'); // Get more data for stats
+                
+                // Fetch data
+                const response = await fetch(`/api/detections?${params}`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    updateStatsDisplay(data);
+                }
+            } catch (error) {
+                console.error('Error loading stats data:', error);
+            }
+        }
+        
+        // Update the stats display in the stats section
+        function updateStatsDisplay(data) {
+            // Update the main stat cards
+            document.getElementById('totalDetectionsStat').textContent = data.count;
+            
+            const startDate = data.filters.start_date || 'N/A';
+            const endDate = data.filters.end_date || 'N/A';
+            document.getElementById('dateRangeStat').textContent = 
+                startDate !== 'N/A' && endDate !== 'N/A' ? `${startDate} to ${endDate}` : 'All time';
+            
+            const uniqueCameras = new Set(data.detections.map(d => d.camera_location)).size;
+            document.getElementById('cameraCountStat').textContent = uniqueCameras;
+            
+            const uniquePlates = new Set(data.detections.map(d => d.plate_number)).size;
+            document.getElementById('uniquePlatesStat').textContent = uniquePlates;
+            
+            // Update recent activity (showing last 5 detections)
+            const recentActivity = document.getElementById('recentActivity');
+            if (data.detections.length > 0) {
+                const recent = data.detections.slice(0, 5);
+                recentActivity.innerHTML = recent.map(detection => `
+                    <div style="padding: 8px 0; border-bottom: 1px solid #e2e8f0;">
+                        <div style="font-weight: 500;">${detection.plate_number || 'Unknown'}</div>
+                        <div style="font-size: 12px; color: #718096;">
+                            ${formatToPacificTime(detection.detection_timestamp)} - ${detection.camera_location}
+                        </div>
+                    </div>
+                `).join('');
+            } else {
+                recentActivity.innerHTML = '<div style="color: #718096; font-style: italic;">No recent activity</div>';
+            }
+        }
+        
+        // Set up navigation event listeners
+        function setupNavigation() {
+            document.querySelectorAll('.nav-item').forEach(item => {
+                item.addEventListener('click', () => {
+                    const section = item.getAttribute('data-section');
+                    showSection(section);
+                });
+            });
+        }
+        
         // Initialize the application
         map.on('load', function() {
             initializeDates();
             loadCameras();
             loadDetections();
             setupPlateSearchHandlers();
+            setupNavigation();
         });
 
         // Add keyboard shortcuts

@@ -1,257 +1,245 @@
-# UniFi Protect License Plate Detection Cloud Function
+# UniFi Protect License Plate Detection
 
-A Google Cloud Function that receives webhooks from UniFi Protect cameras when license plates are detected and stores the data in BigQuery for analysis and tracking.
+A system for detecting and tracking license plates from UniFi Protect cameras, consisting of a webhook receiver (Cloud Function), a web-based map dashboard, and utility scripts.
 
 ## Features
 
 - **Real-time Processing**: Receives webhooks from UniFi Protect immediately when license plates are detected
+- **Multiple Webhook Formats**: Supports both alarm-based triggers and smart detection events
 - **BigQuery Integration**: Stores detection data with full schema in BigQuery for analysis
-- **Flexible Configuration**: Environment-based configuration for different deployment scenarios
-- **Error Handling**: Comprehensive error handling and logging
-- **Scalable**: Designed to handle multiple camera feeds and high detection volumes
-- **Security**: Optional webhook signature validation
+- **Thumbnail Storage**: Optional image storage in Google Cloud Storage (full scene + cropped plates)
+- **Web Dashboard**: Interactive map interface to view and search detections
+- **Vehicle Attributes**: Extracts vehicle type and color when available
+- **Health Monitoring**: Comprehensive health check endpoints with dependency status
 
 ## Architecture
 
 ```
-UniFi Protect Camera → License Plate Detection → Webhook → Cloud Function → BigQuery
+┌─────────────────┐     ┌──────────────────────┐     ┌─────────────┐
+│  UniFi Protect  │────▶│  Webhook             │────▶│  BigQuery   │
+│  Cameras        │     │  (Cloud Function)    │     │  (data)     │
+└─────────────────┘     └──────────────────────┘     └─────────────┘
+                                   │                        │
+                                   ▼                        │
+                        ┌─────────────────────┐            │
+                        │  Cloud Storage      │            │
+                        │  (thumbnails)       │            │
+                        └─────────────────────┘            │
+                                                           │
+                        ┌─────────────────────┐            │
+                        │  Webserver          │◀───────────┘
+                        │  (Map Dashboard)    │
+                        └─────────────────────┘
 ```
 
 ## Project Structure
 
 ```
 protectmenlo/
-├── main.py                    # Main Cloud Function entry point
-├── bigquery_client.py         # BigQuery integration and schema management  
-├── unifi_protect_client.py    # UniFi Protect API client and webhook processing
-├── config.py                  # Configuration management
-├── requirements.txt           # Python dependencies
-├── deploy.sh                  # Deployment script
-├── .env.template             # Environment configuration template
-└── README.md                 # This file
+├── README.md                   # This file
+├── webhook/                    # Cloud Function - receives UniFi Protect webhooks
+│   ├── main.py                 # Entry point & webhook handler
+│   ├── config.py               # Configuration management
+│   ├── bigquery_client.py      # BigQuery data storage
+│   ├── gcs_client.py           # Cloud Storage for thumbnails
+│   ├── unifi_protect_client.py # UniFi Protect API client
+│   ├── deploy.sh               # Deployment script
+│   ├── requirements.txt        # Python dependencies
+│   ├── .env.template           # Environment variable template
+│   └── .gcloudignore           # Files to exclude from deployment
+├── webserver/                  # Flask web app - map dashboard & API
+│   ├── main.py                 # Flask app with API endpoints
+│   ├── templates/              # HTML templates
+│   │   └── map.html            # Interactive map interface
+│   ├── static/                 # Static assets (CSS, JS)
+│   ├── deploy.sh               # Deployment script
+│   └── requirements.txt        # Python dependencies
+├── scripts/                    # Utility & maintenance scripts
+│   ├── backfill_detections.py  # Backfill historical data
+│   ├── create_camera_lookup.py # Camera location setup
+│   ├── update_camera_lookup.py # Update camera metadata
+│   ├── query_images.py         # Query stored images
+│   ├── setup_env.py            # Environment setup helper
+│   ├── test_*.py               # Test scripts
+│   ├── debug_*.py              # Debug utilities
+│   └── sql/                    # SQL scripts
+└── docs/                       # Documentation
+    ├── API_DOCUMENTATION.md    # Webhook API reference
+    ├── CLI_COMMANDS_REFERENCE.md
+    ├── IMAGE_URLS_GUIDE.md
+    ├── README_BACKFILL.md
+    └── THUMBNAIL_IMPLEMENTATION.md
 ```
 
-## Setup
+## Components
 
-### Prerequisites
+### Webhook (Cloud Function)
 
-1. **Google Cloud Project** with billing enabled
-2. **UniFi Protect** system with cameras that support license plate detection
-3. **gcloud CLI** installed and authenticated
-4. **Python 3.11+** for local development
+Receives license plate detection events from UniFi Protect and stores them in BigQuery.
 
-> **⚠️ Important Library Change**: This project now uses the `uiprotect` library instead of the deprecated `pyunifiprotect`. If you have an existing installation, please update your dependencies.
-
-### Installation
-
-1. Clone or download the project files
-2. Copy the environment template:
-   ```bash
-   cp .env.template .env.development
-   ```
-
-3. Edit `.env.development` with your configuration:
-   ```bash
-   # Required
-   GCP_PROJECT_ID=your-gcp-project-id
-   
-   # UniFi Protect connection
-   UNIFI_PROTECT_HOST=your.unifi.protect.host
-   UNIFI_PROTECT_USERNAME=your-username
-   UNIFI_PROTECT_PASSWORD=your-password
-   
-   # Optional security
-   WEBHOOK_SECRET=your-secret-key
-   ```
-
-### Deployment
-
-1. Make the deploy script executable:
-   ```bash
-   chmod +x deploy.sh
-   ```
-
-2. Deploy to development:
-   ```bash
-   ./deploy.sh development your-gcp-project-id
-   ```
-
-3. Deploy to production:
-   ```bash
-   ./deploy.sh production your-gcp-project-id
-   ```
-
-The deployment script will:
-- Enable required Google Cloud APIs
-- Create BigQuery datasets and tables
-- Deploy the Cloud Function
-- Provide the webhook URL for UniFi Protect configuration
-
-## Configuration
-
-### Environment Variables
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `GCP_PROJECT_ID` | ✅ | - | Google Cloud Project ID |
-| `BIGQUERY_DATASET` | ❌ | `license_plates` | BigQuery dataset name |
-| `BIGQUERY_TABLE` | ❌ | `detections` | BigQuery table name |
-| `UNIFI_PROTECT_HOST` | ❌ | - | UniFi Protect hostname/IP |
-| `UNIFI_PROTECT_USERNAME` | ❌ | - | UniFi Protect username |
-| `UNIFI_PROTECT_PASSWORD` | ❌ | - | UniFi Protect password |
-| `WEBHOOK_SECRET` | ❌ | - | Webhook validation secret |
-| `MIN_CONFIDENCE_THRESHOLD` | ❌ | `0.7` | Minimum detection confidence |
-| `LOG_LEVEL` | ❌ | `INFO` | Logging level |
-
-### UniFi Protect Setup
-
-1. **Enable License Plate Detection** on your cameras:
-   - Go to UniFi Protect → Cameras
-   - Select camera → Settings → Smart Detections
-   - Enable "License Plate Detection"
-
-2. **Configure Webhooks**:
-   - Go to UniFi Protect → Settings → System
-   - Add webhook URL: `https://your-cloud-function-url`
-   - Set events to include "Smart Detection"
-
-## BigQuery Schema
-
-The function creates a table with the following schema:
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `record_id` | STRING | Unique record identifier |
-| `plate_number` | STRING | Detected license plate number |
-| `confidence` | FLOAT | Detection confidence (0-1) |
-| `detection_timestamp` | DATETIME | When the plate was detected |
-| `camera_id` | STRING | UniFi Protect camera ID |
-| `camera_name` | STRING | Camera display name |
-| `camera_location` | STRING | Camera location |
-| `event_id` | STRING | UniFi Protect event ID |
-| `snapshot_url` | STRING | URL to detection image |
-| `latitude` | FLOAT | Camera GPS latitude |
-| `longitude` | FLOAT | Camera GPS longitude |
-| `detection_box_*` | FLOAT | License plate bounding box coordinates |
-| `processed_by` | STRING | Processing system identifier |
-
-## Usage Examples
-
-### Query Recent Detections
-
-```sql
-SELECT 
-    plate_number,
-    camera_name,
-    detection_timestamp,
-    confidence
-FROM `your-project.license_plates.detections`
-WHERE detection_timestamp >= DATETIME_SUB(CURRENT_DATETIME(), INTERVAL 24 HOUR)
-ORDER BY detection_timestamp DESC
+```bash
+cd webhook
+./deploy.sh production your-project-id
 ```
 
-### Find Specific License Plate
+See [docs/API_DOCUMENTATION.md](docs/API_DOCUMENTATION.md) for webhook API details.
 
-```sql
-SELECT *
-FROM `your-project.license_plates.detections`
-WHERE plate_number = 'ABC123'
-ORDER BY detection_timestamp DESC
+### Webserver (Map Dashboard)
+
+Interactive web interface for viewing detections on a map, searching plates, and viewing statistics.
+
+```bash
+cd webserver
+./deploy.sh production your-project-id
 ```
 
-### Detection Statistics
+**Features:**
+- Mapbox-powered interactive map
+- Date range filtering
+- Camera location filtering
+- Plate search with autocomplete
+- "Unknown vehicles" filter (plates seen < 20 times)
+- Detection history per plate
 
-```sql
-SELECT 
-    COUNT(*) as total_detections,
-    COUNT(DISTINCT plate_number) as unique_plates,
-    DATE(detection_timestamp) as detection_date
-FROM `your-project.license_plates.detections`
-WHERE detection_timestamp >= DATETIME_SUB(CURRENT_DATETIME(), INTERVAL 7 DAY)
-GROUP BY detection_date
-ORDER BY detection_date DESC
+### Scripts
+
+Utility scripts for setup, maintenance, and debugging.
+
+```bash
+cd scripts
+python backfill_detections.py  # Backfill historical data
+python create_camera_lookup.py # Set up camera locations
+```
+
+## Quick Start
+
+### 1. Configure Webhook
+
+```bash
+cd webhook
+cp .env.template .env.development
+# Edit .env.development with your values
+```
+
+### 2. Deploy Webhook
+
+```bash
+cd webhook
+chmod +x deploy.sh
+./deploy.sh production your-project-id
+```
+
+### 3. Configure UniFi Protect
+
+Point your UniFi Protect webhook to:
+```
+https://<region>-<project-id>.cloudfunctions.net/license-plate-webhook
+```
+
+### 4. Deploy Webserver (Optional)
+
+```bash
+cd webserver
+./deploy.sh production your-project-id
 ```
 
 ## Local Development
 
-1. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-   
-   > **Note**: The project now uses `uiprotect>=5.0.0` instead of the deprecated `pyunifiprotect`
-
-2. Set environment variables:
-   ```bash
-   export GCP_PROJECT_ID=your-project-id
-   # ... other variables
-   ```
-
-3. Run locally:
-   ```bash
-   python main.py
-   ```
-
-4. Test webhook endpoint:
-   ```bash
-   curl -X POST http://localhost:8080/ \
-     -H "Content-Type: application/json" \
-     -d '{"type": "smart_detection", "smart_detect_data": {"detections": []}}'
-   ```
-
-## Monitoring and Troubleshooting
-
-### View Logs
+### Webhook
 
 ```bash
-# View function logs
+cd webhook
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+export GCP_PROJECT_ID=your-project-id
+python main.py
+# Runs on http://localhost:8080
+```
+
+### Webserver
+
+```bash
+cd webserver
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+export GCP_PROJECT_ID=your-project-id
+export MAPBOX_ACCESS_TOKEN=your-token
+python main.py
+# Runs on http://localhost:8080
+```
+
+## Configuration
+
+### Webhook Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `GCP_PROJECT_ID` | Yes | - | Google Cloud project ID |
+| `BIGQUERY_DATASET` | No | `license_plates` | BigQuery dataset name |
+| `BIGQUERY_TABLE` | No | `detections` | BigQuery table name |
+| `WEBHOOK_SECRET` | No | - | Webhook signature validation |
+| `MIN_CONFIDENCE_THRESHOLD` | No | `0.7` | Minimum detection confidence |
+| `STORE_IMAGES` | No | `false` | Enable thumbnail storage |
+| `GCS_THUMBNAIL_BUCKET` | No | `menlo_oaks_thumbnails` | GCS bucket for images |
+
+See [webhook/.env.template](webhook/.env.template) for full list.
+
+### Webserver Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `GCP_PROJECT_ID` | Yes | Google Cloud project ID |
+| `BIGQUERY_DATASET` | No | BigQuery dataset (default: `license_plates`) |
+| `MAPBOX_ACCESS_TOKEN` | Yes | Mapbox API token for map rendering |
+
+## API Endpoints
+
+### Webhook
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Health check |
+| `/` | POST | Receive webhook from UniFi Protect |
+
+### Webserver
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | Map interface |
+| `/api/detections` | GET | Query detections with filters |
+| `/api/cameras` | GET | List camera locations |
+| `/api/plates/search` | GET | Search plates (autocomplete) |
+| `/api/plates/<plate>/locations` | GET | Locations where plate was seen |
+| `/api/plates/<plate>/detections` | GET | Detection history for plate |
+
+## Monitoring
+
+### Webhook Logs
+
+```bash
 gcloud functions logs read license-plate-webhook --region=us-central1
-
-# Tail logs in real-time
-gcloud functions logs tail license-plate-webhook --region=us-central1
 ```
 
-### Common Issues
+### Health Checks
 
-1. **Function timeout**: Increase timeout in `deploy.sh`
-2. **BigQuery permissions**: Ensure the function's service account has BigQuery Data Editor role
-3. **Webhook not receiving data**: Check UniFi Protect webhook configuration
-4. **Low detection confidence**: Adjust `MIN_CONFIDENCE_THRESHOLD`
-
-### Health Check
-
-The function provides a health check endpoint:
 ```bash
-curl https://your-function-url/health
+# Webhook
+curl https://<webhook-url>/health
+
+# Webserver
+curl https://<webserver-url>/health
 ```
 
-## Security Considerations
+## Documentation
 
-1. **Webhook Secrets**: Always use `WEBHOOK_SECRET` in production
-2. **SSL Verification**: Keep `UNIFI_PROTECT_VERIFY_SSL=true` unless necessary
-3. **IAM Permissions**: Use principle of least privilege for service accounts
-4. **Network Security**: Consider VPC connector for internal UniFi Protect access
-
-## Cost Optimization
-
-1. **Function Configuration**:
-   - Set appropriate memory allocation (512MB default)
-   - Configure max instances based on expected load
-   - Use min instances = 0 to reduce idle costs
-
-2. **BigQuery**:
-   - Partition tables by date for better performance
-   - Set up table expiration if long-term storage isn't needed
-   - Consider clustering on frequently queried columns
+- [API Documentation](docs/API_DOCUMENTATION.md) - Webhook request/response formats
+- [Backfill Guide](docs/README_BACKFILL.md) - Backfilling historical data
+- [Thumbnail Implementation](docs/THUMBNAIL_IMPLEMENTATION.md) - Image storage details
+- [Image URLs Guide](docs/IMAGE_URLS_GUIDE.md) - Working with stored images
+- [CLI Commands](docs/CLI_COMMANDS_REFERENCE.md) - Useful CLI commands
 
 ## License
 
-This project is provided as-is for educational and personal use.
-
-## Support
-
-For issues with:
-- **UniFi Protect**: Consult Ubiquiti documentation
-- **Google Cloud**: Check GCP documentation and support
-- **This integration**: Review logs and configuration
-# menlo-oaks
+Private - All rights reserved

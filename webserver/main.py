@@ -10,7 +10,7 @@ This function provides:
 
 import os
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Any, Optional
 from flask import Flask, render_template, request, jsonify, send_from_directory
 from google.cloud import bigquery
@@ -25,6 +25,21 @@ MAPBOX_ACCESS_TOKEN = os.getenv('MAPBOX_ACCESS_TOKEN', 'your-mapbox-token')
 
 # Initialize BigQuery client
 client = bigquery.Client(project=PROJECT_ID)
+
+def format_timestamp_as_utc(dt):
+    """Ensure datetime is treated as UTC and format as ISO string with Z suffix."""
+    if dt is None:
+        return None
+    
+    # If datetime is naive (no timezone info), assume it's UTC
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    
+    # Convert to UTC if it's not already
+    dt_utc = dt.astimezone(timezone.utc)
+    
+    # Return ISO format with Z suffix to clearly indicate UTC
+    return dt_utc.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
 
 def query_detections(
     start_date: Optional[str] = None,
@@ -144,7 +159,7 @@ def query_detections(
                 'record_id': row.record_id,
                 'plate_number': row.plate_number,
                 'confidence': float(row.confidence or 0),
-                'detection_timestamp': row.detection_timestamp.isoformat() if row.detection_timestamp else None,
+                'detection_timestamp': format_timestamp_as_utc(row.detection_timestamp),
                 'vehicle_type': row.vehicle_type,
                 'vehicle_color': row.vehicle_color,
                 'event_id': row.event_id,
@@ -314,7 +329,7 @@ def api_plate_search():
             plates.append({
                 'plate_number': row.plate_number,
                 'detection_count': row.detection_count,
-                'last_seen': row.last_seen.isoformat() if row.last_seen else None,
+                'last_seen': format_timestamp_as_utc(row.last_seen),
                 'location_count': row.location_count
             })
         
@@ -369,8 +384,8 @@ def api_plate_locations(plate_number):
                 'latitude': float(row.latitude),
                 'longitude': float(row.longitude),
                 'detection_count': row.detection_count,
-                'last_seen': row.last_seen.isoformat() if row.last_seen else None,
-                'first_seen': row.first_seen.isoformat() if row.first_seen else None
+                'last_seen': format_timestamp_as_utc(row.last_seen),
+                'first_seen': format_timestamp_as_utc(row.first_seen)
             })
         
         return jsonify({
@@ -429,7 +444,7 @@ def api_plate_detections(plate_number):
         for row in results:
             detection = {
                 'record_id': row.record_id,
-                'detection_timestamp': row.detection_timestamp.isoformat() if row.detection_timestamp else None,
+                'detection_timestamp': format_timestamp_as_utc(row.detection_timestamp),
                 'confidence': float(row.confidence or 0),
                 'vehicle_type': row.vehicle_type,
                 'vehicle_color': row.vehicle_color,
