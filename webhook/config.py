@@ -22,12 +22,9 @@ class Config:
         self.BIGQUERY_TABLE = self._get_env("BIGQUERY_TABLE", "detections")
         self.BIGQUERY_LOCATION = self._get_env("BIGQUERY_LOCATION", "US")
         
-        # UniFi Protect Configuration
+        # UniFi Protect Configuration (host/port used for thumbnail URL construction)
         self.UNIFI_PROTECT_HOST = self._get_env("UNIFI_PROTECT_HOST", "")
         self.UNIFI_PROTECT_PORT = int(self._get_env("UNIFI_PROTECT_PORT", "443"))
-        self.UNIFI_PROTECT_USERNAME = self._get_env("UNIFI_PROTECT_USERNAME", "")
-        self.UNIFI_PROTECT_PASSWORD = self._get_env("UNIFI_PROTECT_PASSWORD", "")
-        self.UNIFI_PROTECT_VERIFY_SSL = self._get_env("UNIFI_PROTECT_VERIFY_SSL", "true").lower() == "true"
         
         # Webhook Configuration
         self.WEBHOOK_SECRET = self._get_env("WEBHOOK_SECRET", "")
@@ -170,7 +167,6 @@ class Config:
         logger.info(f"  Vehicle Color Filters: {self.FILTER_VEHICLE_COLORS or 'None'}")
         logger.info(f"  UniFi Protect Host: {self.UNIFI_PROTECT_HOST or 'Not configured'}")
         logger.info(f"  UniFi Protect Port: {self.UNIFI_PROTECT_PORT}")
-        logger.info(f"  UniFi Protect Verify SSL: {self.UNIFI_PROTECT_VERIFY_SSL}")
         logger.info(f"  GCS Download Verify SSL: {self.GCS_DOWNLOAD_VERIFY_SSL}")
         logger.info(f"  Webhook Secret Configured: {'Yes' if self.WEBHOOK_SECRET else 'No'}")
         logger.info(f"  Log Level: {self.LOG_LEVEL}")
@@ -183,29 +179,6 @@ class Config:
             Full table name in format project.dataset.table
         """
         return f"{self.GCP_PROJECT_ID}.{self.BIGQUERY_DATASET}.{self.BIGQUERY_TABLE}"
-    
-    def is_unifi_protect_configured(self) -> bool:
-        """
-        Check if UniFi Protect is fully configured.
-        
-        Returns:
-            True if all required UniFi Protect settings are present
-        """
-        return bool(
-            self.UNIFI_PROTECT_HOST and 
-            self.UNIFI_PROTECT_USERNAME and 
-            self.UNIFI_PROTECT_PASSWORD
-        )
-    
-    def get_unifi_protect_base_url(self) -> str:
-        """
-        Get UniFi Protect base URL.
-        
-        Returns:
-            Base URL for UniFi Protect
-        """
-        protocol = "https" if self.UNIFI_PROTECT_VERIFY_SSL else "http"
-        return f"{protocol}://{self.UNIFI_PROTECT_HOST}:{self.UNIFI_PROTECT_PORT}"
     
     def to_dict(self) -> dict:
         """
@@ -221,13 +194,11 @@ class Config:
             "bigquery_location": self.BIGQUERY_LOCATION,
             "unifi_protect_host": self.UNIFI_PROTECT_HOST,
             "unifi_protect_port": self.UNIFI_PROTECT_PORT,
-            "unifi_protect_verify_ssl": self.UNIFI_PROTECT_VERIFY_SSL,
             "min_confidence_threshold": self.MIN_CONFIDENCE_THRESHOLD,
             "store_images": self.STORE_IMAGES,
             "gcs_thumbnail_bucket": self.GCS_THUMBNAIL_BUCKET,
             "log_level": self.LOG_LEVEL,
             "webhook_secret_configured": bool(self.WEBHOOK_SECRET),
-            "unifi_protect_configured": self.is_unifi_protect_configured()
         }
 
 
@@ -258,9 +229,6 @@ class ProductionConfig(Config):
         if not self.WEBHOOK_SECRET:
             logger.warning("WEBHOOK_SECRET not set in production environment")
         
-        if not self.is_unifi_protect_configured():
-            logger.warning("UniFi Protect not fully configured in production environment")
-        
         logger.info("Using Production Configuration")
 
 
@@ -285,22 +253,18 @@ class TestConfig(Config):
 def get_config() -> Config:
     """
     Get configuration instance based on environment.
-    
+
     Returns:
         Configuration instance
     """
     env = os.environ.get("ENVIRONMENT", "development").lower()
-    
+
     if env == "production":
         return ProductionConfig()
     elif env == "test":
         return TestConfig()
     else:
         return DevelopmentConfig()
-
-
-# Global configuration instance
-config = get_config()
 
 
 # Configuration validation functions
@@ -331,8 +295,6 @@ def get_required_environment_vars() -> list:
         "GCP_PROJECT_ID",
         # Optional but recommended
         "UNIFI_PROTECT_HOST",
-        "UNIFI_PROTECT_USERNAME", 
-        "UNIFI_PROTECT_PASSWORD",
         "WEBHOOK_SECRET"
     ]
 

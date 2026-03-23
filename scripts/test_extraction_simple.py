@@ -249,8 +249,9 @@ def test_bigquery_integration():
     print("\n=== Testing BigQuery integration ===")
     
     try:
-        from config import config
+        from config import get_config
         from bigquery_client import BigQueryClient
+        config = get_config()
         from datetime import datetime, timedelta
         
         # Initialize BigQuery client

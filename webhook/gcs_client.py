@@ -10,7 +10,7 @@ from typing import Dict, Any, Optional, Tuple, List
 from io import BytesIO
 
 from google.cloud import storage
-from google.cloud.exceptions import GoogleCloudError
+from google.cloud.exceptions import GoogleCloudError, Forbidden, NotFound
 import requests
 
 # Use root logger for consistent logging in GCP
@@ -241,31 +241,18 @@ class GCSClient:
     
     def _ensure_bucket_exists(self):
         """Ensure the GCS bucket exists, create if it doesn't."""
+        bucket = self.client.bucket(self.bucket_name)
         try:
-            bucket = self.client.bucket(self.bucket_name)
             bucket.reload()
             logger.info(f"GCS bucket {self.bucket_name} exists")
-        except Exception:
-            # Bucket doesn't exist, create it
+        except Forbidden:
+            logger.info(f"No permission to inspect bucket {self.bucket_name}, assuming it exists")
+        except NotFound:
             logger.info(f"Creating GCS bucket {self.bucket_name}")
-            bucket = self.client.bucket(self.bucket_name)
-            
-            # Set bucket location
             bucket.location = self.config.GCS_BUCKET_LOCATION
-            
-            # Configure bucket settings
             bucket.versioning_enabled = False
-            bucket.default_kms_key_name = None  # Use default encryption
-            
-            # Set lifecycle rules to automatically delete old thumbnails
             if self.config.GCS_RETENTION_DAYS > 0:
-                rule = {
-                    "action": {"type": "Delete"},
-                    "condition": {"age": self.config.GCS_RETENTION_DAYS}
-                }
-                bucket.lifecycle_rules = [rule]
-            
-            # Create the bucket
+                bucket.lifecycle_rules = [{"action": {"type": "Delete"}, "condition": {"age": self.config.GCS_RETENTION_DAYS}}]
             self.client.create_bucket(bucket)
             logger.info(f"Created GCS bucket {self.bucket_name}")
     

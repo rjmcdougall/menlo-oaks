@@ -13,7 +13,6 @@ import functions_framework
 from flask import Request, jsonify
 
 from bigquery_client import BigQueryClient
-from unifi_protect_client import UniFiProtectClient
 from gcs_client import GCSClient
 from config import Config
 
@@ -46,7 +45,6 @@ bq_logger.setLevel(logging.DEBUG)
 # Initialize clients
 config = Config()
 bq_client = BigQueryClient(config)
-unifi_client = UniFiProtectClient(config)
 gcs_client = GCSClient(config) if config.STORE_IMAGES else None
 
 
@@ -738,73 +736,6 @@ def process_thumbnails_for_plate(plate_data: Dict[str, Any], webhook_data: Dict[
             else:
                 logger.warning(f"Failed to store cropped thumbnail for {plate_number}: {upload_result.get('error')}")
         
-        # 3. Alternative: Use UniFi Protect client for authenticated thumbnail extraction
-        # This would be used if the webhook doesn't contain direct URLs or if authentication is needed
-        if not thumbnail_results and config.is_unifi_protect_configured():
-            logger.info("Attempting to extract thumbnails using UniFi Protect client")
-            
-            import asyncio
-            
-            async def extract_thumbnails_async():
-                try:
-                    # Connect to UniFi Protect
-                    if await unifi_client.connect():
-                        # Extract thumbnails from the detection event
-                        thumbnails = await unifi_client.extract_thumbnails_from_detection(webhook_data)
-                        
-                        for thumbnail_info in thumbnails:
-                            if thumbnail_info.get("url"):
-                                thumbnail_url = thumbnail_info["url"]
-                                thumbnail_type = thumbnail_info.get("type", "snapshot")
-                                
-                                # Download thumbnail data directly
-                                image_data = await unifi_client.download_thumbnail(thumbnail_url)
-                                
-                                if image_data:
-                                    # Upload to GCS
-                                    upload_result = gcs_client.upload_thumbnail(
-                                        image_data=image_data,
-                                        plate_number=plate_number,
-                                        detection_timestamp=detection_timestamp,
-                                        event_id=event_id,
-                                        image_type=thumbnail_type
-                                    )
-                                    
-                                    if upload_result.get("success"):
-                                        # Map thumbnail type to result fields
-                                        if thumbnail_type == "license_plate_crop":
-                                            thumbnail_results.update({
-                                                "cropped_thumbnail_gcs_path": upload_result["gcs_path"],
-                                                "cropped_thumbnail_public_url": upload_result["public_url"],
-                                                "cropped_thumbnail_filename": upload_result["filename"],
-                                                "cropped_thumbnail_size_bytes": upload_result["size_bytes"]
-                                            })
-                                        else:
-                                            thumbnail_results.update({
-                                                "thumbnail_gcs_path": upload_result["gcs_path"],
-                                                "thumbnail_public_url": upload_result["public_url"],
-                                                "thumbnail_filename": upload_result["filename"],
-                                                "thumbnail_size_bytes": upload_result["size_bytes"],
-                                                "thumbnail_content_type": upload_result["content_type"],
-                                                "thumbnail_upload_timestamp": upload_result["upload_timestamp"]
-                                            })
-                        
-                        await unifi_client.disconnect()
-                        return thumbnail_results
-                    
-                except Exception as e:
-                    logger.error(f"Error in async thumbnail extraction: {str(e)}")
-                    return thumbnail_results
-            
-            # Run async thumbnail extraction
-            try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                thumbnail_results = loop.run_until_complete(extract_thumbnails_async())
-                loop.close()
-            except Exception as e:
-                logger.error(f"Error running async thumbnail extraction: {str(e)}")
-        
         if thumbnail_results:
             logger.info(f"Successfully processed {len(thumbnail_results)} thumbnail fields for plate {plate_number}")
             return thumbnail_results
@@ -965,24 +896,20 @@ def check_configuration_health() -> Dict[str, Any]:
         warnings = []
         if not config.WEBHOOK_SECRET:
             warnings.append("WEBHOOK_SECRET not configured - webhooks are not authenticated")
-            
-        if not config.is_unifi_protect_configured():
-            warnings.append("UniFi Protect connection not configured - operating in webhook-only mode")
-        
+
         if issues:
             return {
                 "status": "unhealthy",
                 "issues": issues,
                 "warnings": warnings
             }
-        
+
         return {
             "status": "healthy",
             "warnings": warnings,
             "bigquery_dataset": config.BIGQUERY_DATASET,
             "bigquery_table": config.BIGQUERY_TABLE,
             "webhook_auth": bool(config.WEBHOOK_SECRET),
-            "unifi_protect_configured": config.is_unifi_protect_configured()
         }
         
     except Exception as e:

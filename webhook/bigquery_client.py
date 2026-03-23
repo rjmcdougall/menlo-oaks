@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional, List
 
 from google.cloud import bigquery
-from google.cloud.exceptions import GoogleCloudError
+from google.cloud.exceptions import GoogleCloudError, Forbidden, NotFound
 
 # Use consistent logger name for better log visibility in GCP
 logger = logging.getLogger(__name__)
@@ -66,15 +66,10 @@ class BigQueryClient:
             logger.info(f"✅ Row data prepared successfully. Keys: {list(row_data.keys())}")
             logger.info(f"📊 Row data sample: plate_number={row_data.get('plate_number')}, detection_timestamp={row_data.get('detection_timestamp')}, confidence={row_data.get('confidence')}")
             
-            # Get table reference
-            logger.info(f"🎯 Getting table reference: {self.config.GCP_PROJECT_ID}.{self.dataset_id}.{self.table_id}")
-            table_ref = self.client.dataset(self.dataset_id).table(self.table_id)
-            table = self.client.get_table(table_ref)
-            logger.info(f"📋 Table reference obtained. Table schema fields: {len(table.schema)}")
-            
             # Insert the row
+            table_ref = self.client.dataset(self.dataset_id).table(self.table_id)
             logger.info(f"🚀 Attempting to insert row into BigQuery for plate {plate_number}...")
-            errors = self.client.insert_rows_json(table, [row_data])
+            errors = self.client.insert_rows_json(table_ref, [row_data])
             logger.info(f"📡 BigQuery insert_rows_json call completed. Errors: {errors}")
             
             if errors:
@@ -242,12 +237,14 @@ class BigQueryClient:
     
     def _ensure_dataset_exists(self):
         """Ensure the BigQuery dataset exists, create if it doesn't."""
+        dataset_ref = self.client.dataset(self.dataset_id)
         try:
-            dataset_ref = self.client.dataset(self.dataset_id)
             self.client.get_dataset(dataset_ref)
             logger.info(f"Dataset {self.dataset_id} exists")
-        except Exception:
-            # Dataset doesn't exist, create it
+        except Forbidden:
+            # No permission to inspect — assume it exists and proceed
+            logger.info(f"No permission to inspect dataset {self.dataset_id}, assuming it exists")
+        except NotFound:
             logger.info(f"Creating dataset {self.dataset_id}")
             dataset = bigquery.Dataset(dataset_ref)
             dataset.location = self.config.BIGQUERY_LOCATION
@@ -257,23 +254,21 @@ class BigQueryClient:
     
     def _ensure_table_exists(self):
         """Ensure the BigQuery table exists with proper schema, create if it doesn't."""
+        table_ref = self.client.dataset(self.dataset_id).table(self.table_id)
         try:
-            table_ref = self.client.dataset(self.dataset_id).table(self.table_id)
             self.client.get_table(table_ref)
             logger.info(f"Table {self.table_id} exists")
-        except Exception:
-            # Table doesn't exist, create it
+        except Forbidden:
+            logger.info(f"No permission to inspect table {self.table_id}, assuming it exists")
+        except NotFound:
             logger.info(f"Creating table {self.table_id}")
             schema = self._get_table_schema()
             table = bigquery.Table(table_ref, schema=schema)
             table.description = "License plate detections from UniFi Protect cameras"
-            
-            # Set table options
             table.time_partitioning = bigquery.TimePartitioning(
                 type_=bigquery.TimePartitioningType.DAY,
                 field="detection_timestamp"
             )
-            
             self.client.create_table(table)
             logger.info(f"Created table {self.table_id}")
     

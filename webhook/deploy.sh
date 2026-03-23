@@ -102,7 +102,7 @@ fi
 
 # Validate required files
 log_info "Validating required files..."
-required_files=("main.py" "requirements.txt" "config.py" "bigquery_client.py" "unifi_protect_client.py")
+required_files=("main.py" "requirements.txt" "config.py" "bigquery_client.py" "gcs_client.py")
 
 for file in "${required_files[@]}"; do
     if [[ ! -f "$file" ]]; then
@@ -121,7 +121,7 @@ gcloud functions deploy "$FUNCTION_NAME" \
     --runtime="$RUNTIME" \
     --region="$REGION" \
     --source=. \
-    --entry-point=license_plate_webhook \
+    --entry-point=main \
     --trigger-http \
     --allow-unauthenticated \
     --memory="$MEMORY" \
@@ -151,11 +151,7 @@ fi
 echo ""
 log_info "Next steps:"
 echo "1. Configure UniFi Protect webhooks to point to: $FUNCTION_URL"
-echo "2. Set environment variables for UniFi Protect connection:"
-echo "   - UNIFI_PROTECT_HOST"
-echo "   - UNIFI_PROTECT_USERNAME"
-echo "   - UNIFI_PROTECT_PASSWORD"
-echo "   - WEBHOOK_SECRET (recommended)"
+echo "2. Set WEBHOOK_SECRET environment variable (recommended for security)"
 echo "3. Test the integration by triggering a license plate detection"
 echo ""
 echo "To view logs: gcloud functions logs read $FUNCTION_NAME --region=$REGION"
