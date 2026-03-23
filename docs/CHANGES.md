@@ -243,9 +243,9 @@ Fixed a broken import caused by the removal of the module-level `config` instanc
 
 ---
 
-## Deployment
+## Deployment (LPR webhook)
 
-The webhook was successfully deployed to Google Cloud Functions (Gen2):
+Successfully deployed to Google Cloud Functions (Gen2):
 
 - **Function:** `license-plate-webhook`
 - **Region:** `us-central1`
@@ -255,3 +255,96 @@ The webhook was successfully deployed to Google Cloud Functions (Gen2):
 - **Entry point:** `main`
 - **BigQuery:** Connected — `license_plates.detections` (2,271,646 rows)
 - **Status:** Healthy ✓
+
+---
+
+## Face Detection Webhook (new feature)
+
+Added UniFi Protect face detection support as a new `/face` route on the existing `license-plate-webhook` Cloud Function.
+
+### New Files
+
+#### `webhook/face_webhook.py`
+
+Handles face detection alarm payloads. Extracts triggers with keys `face_known`, `face_unknown`, and `face_of_interest` from the `alarm.triggers[]` array, uploads thumbnails to Google Photos, and stores records to BigQuery.
+
+**BigQuery table:** `license_plates.facedetection`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `record_id` | STRING | UUID for the record |
+| `detection_timestamp` | TIMESTAMP | Time of the detection event (from trigger) |
+| `event_id` | STRING | UniFi Protect event ID |
+| `person_name` | STRING | Registered person name (`face_known`), null for `face_unknown` |
+| `detection_type` | STRING | `face_known`, `face_unknown`, or `face_of_interest` |
+| `device_id` | STRING | Camera MAC address |
+| `thumbnail_url` | STRING | Google Photos media item URL |
+| `created_at` | TIMESTAMP | Record insertion time |
+
+Table is day-partitioned on `detection_timestamp`.
+
+#### `webhook/photos_client.py`
+
+Google Photos client using OAuth2 refresh token. On first upload per function instance, searches the authorized account's library for an album named `facedetection` and creates it if not found. Album ID is cached in memory. Uses `photoslibrary` scope (full access) to support album listing.
+
+Upload flow:
+1. Refresh access token via `google.oauth2.credentials.Credentials`
+2. Find or create the `facedetection` album
+3. `POST /v1/uploads` — upload raw bytes, receive upload token
+4. `POST /v1/mediaItems:batchCreate` with `albumId` — create media item in album
+
+### Modified Files
+
+#### `webhook/main.py`
+
+- Added `/face` route to the router (checked before the default LPR POST route)
+- Added `face_detection_webhook()` handler function
+- Initialized `GooglePhotosClient` and `FaceDetectionHandler` at module level
+
+```diff
++        if path.endswith('/face') and method == 'POST':
++            return face_detection_webhook(request)
+```
+
+#### `webhook/config.py`
+
+Added Google Photos OAuth2 credentials:
+
+```python
+self.GOOGLE_PHOTOS_CLIENT_ID = self._get_env("GOOGLE_PHOTOS_CLIENT_ID", "")
+self.GOOGLE_PHOTOS_CLIENT_SECRET = self._get_env("GOOGLE_PHOTOS_CLIENT_SECRET", "")
+self.GOOGLE_PHOTOS_REFRESH_TOKEN = self._get_env("GOOGLE_PHOTOS_REFRESH_TOKEN", "")
+```
+
+#### `webhook/requirements.txt`
+
+Added `google-auth>=2.20.0` for OAuth2 token refresh.
+
+### Google Photos OAuth2 Setup
+
+- **GCP project:** `menlo-oaks`
+- **OAuth2 client type:** Desktop app (`installed`)
+- **Scope:** `https://www.googleapis.com/auth/photoslibrary`
+- **Authorized account:** `protect.menlo.oaks@gmail.com` (test user on consent screen)
+- **Album:** `facedetection` (auto-created on first upload)
+
+### Webhook Payload Format
+
+```json
+{
+  "alarm": {
+    "name": "Person of interest",
+    "triggers": [{
+      "device": "847848540D66",
+      "value": "John Doe",
+      "key": "face_known",
+      "eventId": "6820a94003199203e415e945",
+      "timestamp": 1746970986798
+    }],
+    "thumbnail": "data:image/jpeg;base64,..."
+  },
+  "timestamp": 1746970987980
+}
+```
+
+**Endpoint:** `POST https://license-plate-webhook-66u7a42rhq-uc.a.run.app/face`
