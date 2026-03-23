@@ -100,7 +100,8 @@ EXISTING_ENV=$(gcloud functions describe "$FUNCTION_NAME" --region="$REGION" --p
     python3 -c "
 import json, sys
 sensitive = {'GOOGLE_PHOTOS_CLIENT_ID', 'GOOGLE_PHOTOS_CLIENT_SECRET', 'GOOGLE_PHOTOS_REFRESH_TOKEN',
-             'GOOGLE_PHOTOS_ALBUM_ID', 'WEBHOOK_SECRET', 'UNIFI_PROTECT_HOST', 'UNIFI_PROTECT_PORT'}
+             'GOOGLE_PHOTOS_ALBUM_ID', 'WEBHOOK_SECRET', 'UNIFI_PROTECT_HOST', 'UNIFI_PROTECT_PORT',
+             'STORE_IMAGES', 'GCS_DOWNLOAD_VERIFY_SSL', 'GCS_THUMBNAIL_BUCKET'}
 try:
     d = json.load(sys.stdin)
     envs = d.get('serviceConfig', {}).get('environmentVariables', {})
