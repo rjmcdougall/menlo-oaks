@@ -5,7 +5,6 @@ Uses OAuth2 refresh token to upload to a specific Google account's library.
 
 import base64
 import logging
-import os
 from typing import Optional
 
 import requests
@@ -16,18 +15,21 @@ logger = logging.getLogger(__name__)
 
 PHOTOS_UPLOAD_URL = "https://photoslibrary.googleapis.com/v1/uploads"
 PHOTOS_CREATE_URL = "https://photoslibrary.googleapis.com/v1/mediaItems:batchCreate"
-PHOTOS_SCOPE = "https://www.googleapis.com/auth/photoslibrary.appendonly"
+PHOTOS_ALBUMS_URL = "https://photoslibrary.googleapis.com/v1/albums"
+PHOTOS_SCOPE = "https://www.googleapis.com/auth/photoslibrary"
 TOKEN_URI = "https://oauth2.googleapis.com/token"
 
 
 class GooglePhotosClient:
-    """Uploads thumbnails to Google Photos using OAuth2."""
+    """Uploads thumbnails to a named Google Photos album using OAuth2."""
 
-    def __init__(self, client_id: str, client_secret: str, refresh_token: str):
+    def __init__(self, client_id: str, client_secret: str, refresh_token: str, album_name: str = "facedetection"):
         self.client_id = client_id
         self.client_secret = client_secret
         self.refresh_token = refresh_token
+        self.album_name = album_name
         self._creds: Optional[Credentials] = None
+        self._album_id: Optional[str] = None
 
     def _get_access_token(self) -> str:
         """Get a valid access token, refreshing if necessary."""
@@ -46,20 +48,57 @@ class GooglePhotosClient:
 
         return self._creds.token
 
+    def _get_album_id(self) -> Optional[str]:
+        """Find the named album, creating it if it doesn't exist. Cached per instance."""
+        if self._album_id:
+            return self._album_id
+
+        token = self._get_access_token()
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # Page through albums to find one with matching title
+        page_token = None
+        while True:
+            params = {"pageSize": 50}
+            if page_token:
+                params["pageToken"] = page_token
+
+            resp = requests.get(PHOTOS_ALBUMS_URL, headers=headers, params=params, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+
+            for album in data.get("albums", []):
+                if album.get("title") == self.album_name:
+                    self._album_id = album["id"]
+                    logger.info(f"Found existing Photos album '{self.album_name}': {self._album_id}")
+                    return self._album_id
+
+            page_token = data.get("nextPageToken")
+            if not page_token:
+                break
+
+        # Album not found — create it
+        resp = requests.post(
+            PHOTOS_ALBUMS_URL,
+            headers={**headers, "Content-Type": "application/json"},
+            json={"album": {"title": self.album_name}},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        self._album_id = resp.json()["id"]
+        logger.info(f"Created Photos album '{self.album_name}': {self._album_id}")
+        return self._album_id
+
     def upload_image(self, image_data: bytes, filename: str, description: str = "") -> Optional[str]:
         """
-        Upload image bytes to Google Photos.
-
-        Args:
-            image_data: Raw image bytes
-            filename: Filename for the upload (e.g. "face_JohnDoe_2026-03-18.jpg")
-            description: Optional description for the media item
+        Upload image bytes to the facedetection Google Photos album.
 
         Returns:
             Google Photos media item URL, or None on failure
         """
         try:
             token = self._get_access_token()
+            album_id = self._get_album_id()
 
             # Step 1: Upload raw bytes to get an upload token
             upload_response = requests.post(
@@ -76,24 +115,24 @@ class GooglePhotosClient:
             )
             upload_response.raise_for_status()
             upload_token = upload_response.text
-            logger.debug(f"Got upload token for {filename}")
 
-            # Step 2: Create the media item
+            # Step 2: Create the media item in the album
+            body = {
+                "newMediaItems": [{
+                    "description": description,
+                    "simpleMediaItem": {
+                        "fileName": filename,
+                        "uploadToken": upload_token,
+                    }
+                }]
+            }
+            if album_id:
+                body["albumId"] = album_id
+
             create_response = requests.post(
                 PHOTOS_CREATE_URL,
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "newMediaItems": [{
-                        "description": description,
-                        "simpleMediaItem": {
-                            "fileName": filename,
-                            "uploadToken": upload_token,
-                        }
-                    }]
-                },
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                json=body,
                 timeout=30,
             )
             create_response.raise_for_status()
@@ -105,9 +144,8 @@ class GooglePhotosClient:
                 logger.error(f"Photos create failed: {status}")
                 return None
 
-            media_item = item.get("mediaItem", {})
-            url = media_item.get("productUrl")
-            logger.info(f"Uploaded {filename} to Google Photos: {url}")
+            url = item.get("mediaItem", {}).get("productUrl")
+            logger.info(f"Uploaded {filename} to album '{self.album_name}': {url}")
             return url
 
         except Exception as e:
@@ -115,17 +153,7 @@ class GooglePhotosClient:
             return None
 
     def upload_base64_thumbnail(self, thumbnail_data_url: str, filename: str, description: str = "") -> Optional[str]:
-        """
-        Upload a base64 data URL thumbnail to Google Photos.
-
-        Args:
-            thumbnail_data_url: Base64 data URL (e.g. "data:image/jpeg;base64,...")
-            filename: Filename for the media item
-            description: Optional description
-
-        Returns:
-            Google Photos media item URL, or None on failure
-        """
+        """Upload a base64 data URL thumbnail to the facedetection album."""
         try:
             if "," not in thumbnail_data_url:
                 logger.error("Invalid data URL format")
