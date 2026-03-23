@@ -93,11 +93,25 @@ fi
 # Add GCP project ID to environment variables
 ENV_VARS="$ENV_VARS,GCP_PROJECT_ID=$PROJECT_ID"
 
-# Check for .env file with additional environment variables
-if [[ -f ".env.${ENVIRONMENT}" ]]; then
-    log_info "Loading environment variables from .env.${ENVIRONMENT}"
-    # Note: You'll need to manually add these to ENV_VARS since gcloud doesn't support .env files directly
-    log_warn "Please ensure sensitive environment variables are set through gcloud secrets or environment variables"
+# Preserve existing sensitive environment variables from the deployed function
+# These are set separately via --update-env-vars and must survive redeploys
+log_info "Reading existing sensitive env vars from deployed function..."
+EXISTING_ENV=$(gcloud functions describe "$FUNCTION_NAME" --region="$REGION" --project="$PROJECT_ID" --format="json" 2>/dev/null | \
+    python3 -c "
+import json, sys
+sensitive = {'GOOGLE_PHOTOS_CLIENT_ID', 'GOOGLE_PHOTOS_CLIENT_SECRET', 'GOOGLE_PHOTOS_REFRESH_TOKEN',
+             'GOOGLE_PHOTOS_ALBUM_ID', 'WEBHOOK_SECRET', 'UNIFI_PROTECT_HOST', 'UNIFI_PROTECT_PORT'}
+try:
+    d = json.load(sys.stdin)
+    envs = d.get('serviceConfig', {}).get('environmentVariables', {})
+    pairs = [f'{k}={v}' for k, v in envs.items() if k in sensitive]
+    print(','.join(pairs))
+except Exception:
+    pass
+" 2>/dev/null)
+if [[ -n "$EXISTING_ENV" ]]; then
+    ENV_VARS="$ENV_VARS,$EXISTING_ENV"
+    log_info "Preserving existing credentials in deployment"
 fi
 
 # Validate required files

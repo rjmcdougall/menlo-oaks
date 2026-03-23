@@ -56,6 +56,7 @@ if all([config.GOOGLE_PHOTOS_CLIENT_ID, config.GOOGLE_PHOTOS_CLIENT_SECRET, conf
         client_id=config.GOOGLE_PHOTOS_CLIENT_ID,
         client_secret=config.GOOGLE_PHOTOS_CLIENT_SECRET,
         refresh_token=config.GOOGLE_PHOTOS_REFRESH_TOKEN,
+        album_id=config.GOOGLE_PHOTOS_ALBUM_ID or None,
     )
     logger.info("Google Photos client initialized")
 else:

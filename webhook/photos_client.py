@@ -15,21 +15,20 @@ logger = logging.getLogger(__name__)
 
 PHOTOS_UPLOAD_URL = "https://photoslibrary.googleapis.com/v1/uploads"
 PHOTOS_CREATE_URL = "https://photoslibrary.googleapis.com/v1/mediaItems:batchCreate"
-PHOTOS_ALBUMS_URL = "https://photoslibrary.googleapis.com/v1/albums"
-PHOTOS_SCOPE = "https://www.googleapis.com/auth/photoslibrary"
+PHOTOS_SCOPE = "https://www.googleapis.com/auth/photoslibrary.appendonly"
 TOKEN_URI = "https://oauth2.googleapis.com/token"
 
 
 class GooglePhotosClient:
     """Uploads thumbnails to a named Google Photos album using OAuth2."""
 
-    def __init__(self, client_id: str, client_secret: str, refresh_token: str, album_name: str = "facedetection"):
+    def __init__(self, client_id: str, client_secret: str, refresh_token: str, album_id: Optional[str] = None, album_name: str = "facedetection"):
         self.client_id = client_id
         self.client_secret = client_secret
         self.refresh_token = refresh_token
         self.album_name = album_name
         self._creds: Optional[Credentials] = None
-        self._album_id: Optional[str] = None
+        self._album_id: Optional[str] = album_id
 
     def _get_access_token(self) -> str:
         """Get a valid access token, refreshing if necessary."""
@@ -49,44 +48,7 @@ class GooglePhotosClient:
         return self._creds.token
 
     def _get_album_id(self) -> Optional[str]:
-        """Find the named album, creating it if it doesn't exist. Cached per instance."""
-        if self._album_id:
-            return self._album_id
-
-        token = self._get_access_token()
-        headers = {"Authorization": f"Bearer {token}"}
-
-        # Page through albums to find one with matching title
-        page_token = None
-        while True:
-            params = {"pageSize": 50}
-            if page_token:
-                params["pageToken"] = page_token
-
-            resp = requests.get(PHOTOS_ALBUMS_URL, headers=headers, params=params, timeout=30)
-            resp.raise_for_status()
-            data = resp.json()
-
-            for album in data.get("albums", []):
-                if album.get("title") == self.album_name:
-                    self._album_id = album["id"]
-                    logger.info(f"Found existing Photos album '{self.album_name}': {self._album_id}")
-                    return self._album_id
-
-            page_token = data.get("nextPageToken")
-            if not page_token:
-                break
-
-        # Album not found — create it
-        resp = requests.post(
-            PHOTOS_ALBUMS_URL,
-            headers={**headers, "Content-Type": "application/json"},
-            json={"album": {"title": self.album_name}},
-            timeout=30,
-        )
-        resp.raise_for_status()
-        self._album_id = resp.json()["id"]
-        logger.info(f"Created Photos album '{self.album_name}': {self._album_id}")
+        """Return the pre-configured album ID, if set."""
         return self._album_id
 
     def upload_image(self, image_data: bytes, filename: str, description: str = "") -> Optional[str]:

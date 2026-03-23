@@ -33,6 +33,7 @@ class Config:
         self.GOOGLE_PHOTOS_CLIENT_ID = self._get_env("GOOGLE_PHOTOS_CLIENT_ID", "")
         self.GOOGLE_PHOTOS_CLIENT_SECRET = self._get_env("GOOGLE_PHOTOS_CLIENT_SECRET", "")
         self.GOOGLE_PHOTOS_REFRESH_TOKEN = self._get_env("GOOGLE_PHOTOS_REFRESH_TOKEN", "")
+        self.GOOGLE_PHOTOS_ALBUM_ID = self._get_env("GOOGLE_PHOTOS_ALBUM_ID", "")
         
         # Processing Configuration
         self.MIN_CONFIDENCE_THRESHOLD = float(self._get_env("MIN_CONFIDENCE_THRESHOLD", "0.7"))
