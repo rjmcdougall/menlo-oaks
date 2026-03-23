@@ -28,6 +28,11 @@ class Config:
         
         # Webhook Configuration
         self.WEBHOOK_SECRET = self._get_env("WEBHOOK_SECRET", "")
+
+        # Google Photos Configuration (for face detection thumbnails)
+        self.GOOGLE_PHOTOS_CLIENT_ID = self._get_env("GOOGLE_PHOTOS_CLIENT_ID", "")
+        self.GOOGLE_PHOTOS_CLIENT_SECRET = self._get_env("GOOGLE_PHOTOS_CLIENT_SECRET", "")
+        self.GOOGLE_PHOTOS_REFRESH_TOKEN = self._get_env("GOOGLE_PHOTOS_REFRESH_TOKEN", "")
         
         # Processing Configuration
         self.MIN_CONFIDENCE_THRESHOLD = float(self._get_env("MIN_CONFIDENCE_THRESHOLD", "0.7"))

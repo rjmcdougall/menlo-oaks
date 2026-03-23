@@ -6,6 +6,7 @@ flask>=2.3.0
 google-cloud-bigquery>=3.10.0
 google-cloud-storage>=2.10.0
 google-cloud-logging>=3.5.0
+google-auth>=2.20.0
 
 # HTTP client for API calls
 requests>=2.31.0

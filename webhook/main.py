@@ -15,6 +15,8 @@ from flask import Request, jsonify
 from bigquery_client import BigQueryClient
 from gcs_client import GCSClient
 from config import Config
+from face_webhook import FaceDetectionHandler
+from photos_client import GooglePhotosClient
 
 # Configure logging for Google Cloud Functions
 import google.cloud.logging
@@ -47,6 +49,25 @@ config = Config()
 bq_client = BigQueryClient(config)
 gcs_client = GCSClient(config) if config.STORE_IMAGES else None
 
+# Initialize Google Photos client if credentials are configured
+_photos_client = None
+if all([config.GOOGLE_PHOTOS_CLIENT_ID, config.GOOGLE_PHOTOS_CLIENT_SECRET, config.GOOGLE_PHOTOS_REFRESH_TOKEN]):
+    _photos_client = GooglePhotosClient(
+        client_id=config.GOOGLE_PHOTOS_CLIENT_ID,
+        client_secret=config.GOOGLE_PHOTOS_CLIENT_SECRET,
+        refresh_token=config.GOOGLE_PHOTOS_REFRESH_TOKEN,
+    )
+    logger.info("Google Photos client initialized")
+else:
+    logger.warning("Google Photos credentials not configured — thumbnails will not be uploaded")
+
+# Initialize face detection handler
+face_handler = FaceDetectionHandler(
+    project_id=config.GCP_PROJECT_ID,
+    dataset_id=config.BIGQUERY_DATASET,
+    photos_client=_photos_client,
+)
+
 
 @functions_framework.http
 def main(request: Request) -> Dict[str, Any]:
@@ -71,7 +92,11 @@ def main(request: Request) -> Dict[str, Any]:
         # Cloud Functions include the function name in the path, so we check for both formats
         if (path.endswith('/health') or path == '/health' or (path == '' and method == 'GET')):
             return health_check(request)
-        
+
+        # Face detection webhook endpoint
+        if path.endswith('/face') and method == 'POST':
+            return face_detection_webhook(request)
+
         # License plate webhook endpoint (default)
         if method == 'POST':
             return license_plate_webhook(request)
@@ -90,6 +115,36 @@ def main(request: Request) -> Dict[str, Any]:
             "status": "error",
             "message": "Internal server error in request router"
         }), 500
+
+
+def face_detection_webhook(request: Request) -> Dict[str, Any]:
+    """Process UniFi Protect face detection alarm callbacks."""
+    try:
+        if not request.is_json:
+            return jsonify({"error": "Request must be JSON"}), 400
+
+        payload = request.get_json()
+        if not payload:
+            return jsonify({"error": "Empty request body"}), 400
+
+        logger.info(f"Received face detection webhook")
+
+        if config.WEBHOOK_SECRET:
+            if not validate_webhook_signature(request, config.WEBHOOK_SECRET):
+                logger.warning("Invalid webhook signature")
+                return jsonify({"error": "Invalid signature"}), 401
+
+        result = face_handler.process(payload)
+
+        return jsonify({
+            "status": "success",
+            "processed": result["processed"],
+            "errors": result.get("errors", []),
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Unexpected error processing face webhook: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": "Internal server error"}), 500
 
 
 def license_plate_webhook(request: Request) -> Dict[str, Any]:
