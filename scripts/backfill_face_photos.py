@@ -49,7 +49,7 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # Defaults (override via args or env vars)
 # ---------------------------------------------------------------------------
-DEFAULT_HOST = "10.0.99.253"
+DEFAULT_HOST = "10.0.9.70"
 DEFAULT_PORT = 443
 DEFAULT_CHUNK_DAYS = 30   # fetch events in chunks this many days wide
 EVENTS_PAGE_SIZE = 500    # max events per API request
