@@ -51,7 +51,7 @@ except ImportError:
 # ---------------------------------------------------------------------------
 DEFAULT_HOST = "10.0.9.70"
 DEFAULT_PORT = 443
-DEFAULT_CHUNK_DAYS = 30   # fetch events in chunks this many days wide
+DEFAULT_CHUNK_DAYS = 1    # fetch events in 1-day chunks (~71 face events/day on this NVR)
 EVENTS_PAGE_SIZE = 500    # max events per API request
 
 GCP_PROJECT = "menlo-oaks"
@@ -82,11 +82,23 @@ logger = logging.getLogger(__name__)
 class NVRClient:
     """Minimal UniFi Protect HTTP client for face event retrieval."""
 
-    def __init__(self, host: str, port: int, username: str, password: str):
+    def __init__(self, host: str, port: int,
+                 username: str = None, password: str = None,
+                 token: str = None, csrf: str = None):
         self.base = f"https://{host}:{port}"
         self.session = requests.Session()
         self.session.verify = False
-        self._login(username, password)
+        if token:
+            self._use_token(token, csrf)
+        else:
+            self._login(username, password)
+
+    def _use_token(self, token: str, csrf: str = None):
+        """Use a pre-obtained session token instead of logging in."""
+        self.session.cookies.set("TOKEN", token, domain=self.base.split("//")[1].split(":")[0])
+        if csrf:
+            self.session.headers["x-csrf-token"] = csrf
+        logger.info("Using pre-obtained session token")
 
     def _login(self, username: str, password: str):
         resp = self.session.post(
@@ -95,9 +107,14 @@ class NVRClient:
             timeout=30,
         )
         if resp.status_code != 200:
+            body = resp.json() if resp.content else {}
             raise RuntimeError(
-                f"NVR login failed: HTTP {resp.status_code} — {resp.text[:200]}"
+                f"NVR login failed: HTTP {resp.status_code} "
+                f"{body.get('code','')} — {body.get('message', resp.text[:100])}"
             )
+        csrf = resp.headers.get("x-updated-csrf-token") or resp.headers.get("x-csrf-token")
+        if csrf:
+            self.session.headers["x-csrf-token"] = csrf
         logger.info("Authenticated to UniFi Protect NVR")
 
     def get_face_events(self, start_ms: int, end_ms: int) -> list:
@@ -302,8 +319,12 @@ def parse_args():
     p = argparse.ArgumentParser(description="Backfill face detection thumbnails to Google Photos")
     p.add_argument("--host", default=os.environ.get("NVR_HOST", DEFAULT_HOST))
     p.add_argument("--port", type=int, default=DEFAULT_PORT)
-    p.add_argument("--username", default=os.environ.get("NVR_USERNAME"), required=not os.environ.get("NVR_USERNAME"))
-    p.add_argument("--password", default=os.environ.get("NVR_PASSWORD"), required=not os.environ.get("NVR_PASSWORD"))
+    p.add_argument("--username", default=os.environ.get("NVR_USERNAME"))
+    p.add_argument("--password", default=os.environ.get("NVR_PASSWORD"))
+    p.add_argument("--token", default=os.environ.get("NVR_TOKEN"),
+                   help="Pre-obtained TOKEN cookie value (avoids login lockout)")
+    p.add_argument("--csrf", default=os.environ.get("NVR_CSRF"),
+                   help="X-Csrf-Token value paired with --token")
     p.add_argument("--days", type=int, default=None, help="How many days back to fetch (default: all history)")
     p.add_argument("--all", dest="all_history", action="store_true", help="Fetch full NVR history (overrides --days)")
     p.add_argument("--since", help="Start date YYYY-MM-DD (overrides --days)")
@@ -338,7 +359,12 @@ def main():
     logger.info(f"Time range: {start_dt.date()} → {end_dt.date()}")
 
     # --- Connect to NVR ---
-    nvr = NVRClient(args.host, args.port, args.username, args.password)
+    if not args.token and not (args.username and args.password):
+        logger.error("Provide either --token (+ --csrf) or --username + --password")
+        sys.exit(1)
+    nvr = NVRClient(args.host, args.port,
+                    username=args.username, password=args.password,
+                    token=args.token, csrf=args.csrf)
 
     # --- Photos uploader ---
     photos = None
@@ -391,6 +417,8 @@ def main():
             logger.info("  No face events in this window")
             continue
 
+        if len(events) >= EVENTS_PAGE_SIZE:
+            logger.warning(f"  ⚠ Hit page limit ({EVENTS_PAGE_SIZE}) — some events in this window may be missing. Reduce --chunk-days or split the date range.")
         logger.info(f"  Found {len(events)} face detection events")
 
         # Log raw structure of first event to help debug metadata fields
