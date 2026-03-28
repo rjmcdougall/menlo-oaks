@@ -525,6 +525,146 @@
             margin-left: 10px;
         }
 
+        /* Unknown Activity overlay */
+        .map-overlay-btn {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            z-index: 100;
+            background: #2d3748;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 10px 16px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: background 0.2s;
+        }
+        .map-overlay-btn:hover { background: #4a5568; }
+        .map-overlay-btn.active { background: #e53e3e; }
+
+        .overlay-count {
+            background: rgba(255,255,255,0.25);
+            border-radius: 9999px;
+            padding: 1px 7px;
+            font-size: 11px;
+        }
+
+        .unknown-panel {
+            position: absolute;
+            top: 60px;
+            right: 16px;
+            z-index: 100;
+            width: 300px;
+            max-height: calc(100vh - 140px);
+            background: #1a202c;
+            border-radius: 10px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .unknown-panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            background: #2d3748;
+            color: white;
+            font-size: 13px;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+
+        .unknown-legend {
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .legend-plate {
+            padding: 10px 14px;
+            border-bottom: 1px solid #2d3748;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .legend-plate:hover { background: #2d3748; }
+        .legend-plate:last-child { border-bottom: none; }
+
+        .legend-plate-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 4px;
+        }
+
+        .legend-swatch {
+            width: 14px;
+            height: 14px;
+            border-radius: 3px;
+            flex-shrink: 0;
+        }
+
+        .legend-plate-num {
+            color: white;
+            font-weight: 700;
+            font-size: 13px;
+            font-family: monospace;
+            letter-spacing: 1px;
+        }
+
+        .legend-plate-recent {
+            margin-left: auto;
+            background: #e53e3e;
+            color: white;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 6px;
+            border-radius: 9999px;
+            animation: pulse-badge 1.5s infinite;
+        }
+
+        @keyframes pulse-badge {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .legend-plate-meta {
+            color: #a0aec0;
+            font-size: 11px;
+            padding-left: 22px;
+        }
+
+        /* Car marker on map */
+        .car-marker {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+            cursor: pointer;
+            font-size: 14px;
+            border: 2px solid rgba(255,255,255,0.8);
+            transition: transform 0.15s;
+        }
+        .car-marker:hover { transform: scale(1.2); }
+        .car-marker.recent {
+            box-shadow: 0 0 0 4px rgba(229,62,62,0.4), 0 2px 8px rgba(0,0,0,0.4);
+            animation: pulse-ring 1.5s infinite;
+        }
+        @keyframes pulse-ring {
+            0%   { box-shadow: 0 0 0 2px rgba(229,62,62,0.6), 0 2px 8px rgba(0,0,0,0.4); }
+            50%  { box-shadow: 0 0 0 8px rgba(229,62,62,0.15), 0 2px 8px rgba(0,0,0,0.4); }
+            100% { box-shadow: 0 0 0 2px rgba(229,62,62,0.6), 0 2px 8px rgba(0,0,0,0.4); }
+        }
+
         /* Settings Section */
         #settings-section {
             background: #f8fafc;
@@ -798,9 +938,27 @@
         <!-- Map Section (Default) -->
         <section id="map-section" class="section active">
             <div id="map"></div>
-            
+
             <div class="loading" id="loading">
                 <i class="fas fa-spinner fa-spin"></i> Loading detections...
+            </div>
+
+            <!-- Unknown Activity toggle button -->
+            <button id="unknownActivityToggle" class="map-overlay-btn" onclick="toggleUnknownActivity()" title="Show unknown vehicle activity">
+                <i class="fas fa-car"></i> Unknown Activity
+                <span id="unknownActivityCount" class="overlay-count" style="display:none;"></span>
+            </button>
+
+            <!-- Unknown Activity legend panel -->
+            <div id="unknownActivityPanel" class="unknown-panel" style="display:none;">
+                <div class="unknown-panel-header">
+                    <span><i class="fas fa-car"></i> Unknown Vehicles — past 24h</span>
+                    <button onclick="toggleUnknownActivity()" style="background:none;border:none;color:#fff;cursor:pointer;font-size:16px;">×</button>
+                </div>
+                <div id="unknownActivityLoading" style="padding:12px;color:#a0aec0;font-size:13px;">
+                    <i class="fas fa-spinner fa-spin"></i> Loading…
+                </div>
+                <div id="unknownLegend" class="unknown-legend"></div>
             </div>
         </section>
 
@@ -2123,6 +2281,158 @@
             const el = document.getElementById('cameraFormError');
             el.textContent = msg;
             el.style.display = 'block';
+        }
+
+        // ----------------------------------------------------------------
+        // Unknown Activity overlay
+        // ----------------------------------------------------------------
+
+        let unknownMarkers = [];
+        let unknownActivityVisible = false;
+
+        // Distinct palette — enough for ~15 plates before cycling
+        const PLATE_PALETTE = [
+            '#e53e3e','#dd6b20','#d69e2e','#38a169','#319795',
+            '#3182ce','#805ad5','#d53f8c','#00b5d8','#2f855a',
+            '#c05621','#b7791f','#276749','#2c7a7b','#553c9a'
+        ];
+        const plateColorMap = {};
+        let paletteIndex = 0;
+
+        function plateColor(plate) {
+            if (!plateColorMap[plate]) {
+                plateColorMap[plate] = PLATE_PALETTE[paletteIndex % PLATE_PALETTE.length];
+                paletteIndex++;
+            }
+            return plateColorMap[plate];
+        }
+
+        function toggleUnknownActivity() {
+            unknownActivityVisible = !unknownActivityVisible;
+            const btn = document.getElementById('unknownActivityToggle');
+            const panel = document.getElementById('unknownActivityPanel');
+            if (unknownActivityVisible) {
+                btn.classList.add('active');
+                panel.style.display = 'flex';
+                loadUnknownActivity();
+            } else {
+                btn.classList.remove('active');
+                panel.style.display = 'none';
+                clearUnknownMarkers();
+            }
+        }
+
+        function clearUnknownMarkers() {
+            unknownMarkers.forEach(m => m.remove());
+            unknownMarkers = [];
+        }
+
+        async function loadUnknownActivity() {
+            document.getElementById('unknownActivityLoading').style.display = 'block';
+            document.getElementById('unknownLegend').innerHTML = '';
+            clearUnknownMarkers();
+            // reset color assignments so colors are stable per load
+            Object.keys(plateColorMap).forEach(k => delete plateColorMap[k]);
+            paletteIndex = 0;
+
+            try {
+                const resp = await fetch('/api/unknown-activity');
+                const data = await resp.json();
+                if (!data.success) throw new Error(data.error);
+
+                document.getElementById('unknownActivityLoading').style.display = 'none';
+
+                if (data.detections.length === 0) {
+                    document.getElementById('unknownLegend').innerHTML =
+                        '<div style="padding:16px;color:#a0aec0;font-size:13px;">No unknown vehicle activity in the past 24 hours.</div>';
+                    return;
+                }
+
+                // Group by plate
+                const byPlate = {};
+                data.detections.forEach(d => {
+                    if (!byPlate[d.plate_number]) byPlate[d.plate_number] = [];
+                    byPlate[d.plate_number].push(d);
+                });
+
+                // Sort plates: recent first, then by peak window count
+                const sortedPlates = Object.keys(byPlate).sort((a, b) => {
+                    const aRecent = byPlate[a].some(d => d.is_recent);
+                    const bRecent = byPlate[b].some(d => d.is_recent);
+                    if (aRecent !== bRecent) return bRecent - aRecent;
+                    const aPeak = Math.max(...byPlate[a].map(d => d.peak_in_window));
+                    const bPeak = Math.max(...byPlate[b].map(d => d.peak_in_window));
+                    return bPeak - aPeak;
+                });
+
+                // Update toggle count badge
+                const recentCount = sortedPlates.filter(p => byPlate[p].some(d => d.is_recent)).length;
+                const countEl = document.getElementById('unknownActivityCount');
+                countEl.textContent = recentCount > 0 ? `${recentCount} live` : sortedPlates.length;
+                countEl.style.display = 'inline';
+
+                const legend = document.getElementById('unknownLegend');
+
+                sortedPlates.forEach(plate => {
+                    const locs = byPlate[plate];
+                    const color = plateColor(plate);
+                    const isRecent = locs.some(d => d.is_recent);
+                    const peak = Math.max(...locs.map(d => d.peak_in_window));
+                    const lastSeen = locs.reduce((a, b) => a.last_seen > b.last_seen ? a : b).last_seen;
+
+                    // Add map markers for each camera location this plate was seen at
+                    locs.forEach(loc => {
+                        const el = document.createElement('div');
+                        el.className = `car-marker${loc.is_recent ? ' recent' : ''}`;
+                        el.style.background = color;
+                        el.innerHTML = '🚗';
+                        el.title = `${plate} — ${loc.camera_location}\n${loc.location_hit_count} detections, peak ${loc.peak_in_window} in 10 min`;
+
+                        const popup = new mapboxgl.Popup({ offset: 20 }).setHTML(`
+                            <div style="font-family:-apple-system,sans-serif;min-width:180px;">
+                                <div style="font-weight:700;font-size:14px;margin-bottom:6px;">
+                                    <span style="display:inline-block;width:10px;height:10px;background:${color};border-radius:2px;margin-right:6px;"></span>
+                                    ${plate}${loc.is_recent ? ' <span style="color:#e53e3e;font-size:11px;">● LIVE</span>' : ''}
+                                </div>
+                                <div style="font-size:12px;color:#4a5568;">
+                                    <div><b>Camera:</b> ${loc.camera_name}</div>
+                                    <div><b>Location:</b> ${loc.camera_location}</div>
+                                    <div><b>Hits here:</b> ${loc.location_hit_count}</div>
+                                    <div><b>Peak 10-min burst:</b> ${loc.peak_in_window}</div>
+                                    <div><b>Last seen:</b> ${formatToPacificTime(loc.last_seen)}</div>
+                                </div>
+                            </div>
+                        `);
+
+                        const marker = new mapboxgl.Marker({ element: el })
+                            .setLngLat([loc.longitude, loc.latitude])
+                            .setPopup(popup)
+                            .addTo(map);
+                        unknownMarkers.push(marker);
+                    });
+
+                    // Add legend entry
+                    const entry = document.createElement('div');
+                    entry.className = 'legend-plate';
+                    entry.innerHTML = `
+                        <div class="legend-plate-header">
+                            <div class="legend-swatch" style="background:${color};"></div>
+                            <span class="legend-plate-num">${plate}</span>
+                            ${isRecent ? '<span class="legend-plate-recent">LIVE</span>' : ''}
+                        </div>
+                        <div class="legend-plate-meta">
+                            ${locs.length} camera${locs.length !== 1 ? 's' : ''} · peak ${peak} in 10 min · last ${formatToPacificTime(lastSeen)}
+                        </div>`;
+                    // clicking a legend entry flies to first detection location
+                    entry.addEventListener('click', () => {
+                        map.flyTo({ center: [locs[0].longitude, locs[0].latitude], zoom: 15 });
+                    });
+                    legend.appendChild(entry);
+                });
+
+            } catch (err) {
+                document.getElementById('unknownActivityLoading').textContent = 'Error: ' + err.message;
+            }
         }
 
         // Initialize the application

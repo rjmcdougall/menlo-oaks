@@ -473,6 +473,87 @@ def api_plate_detections(plate_number):
             'error': str(e)
         }), 500
 
+@app.route('/api/unknown-activity')
+def api_unknown_activity():
+    """Return unknown plates that exceeded 10 detections in any 10-minute window
+    within the past 24 hours, grouped by plate + camera location.
+
+    'Unknown' means the plate has been seen on fewer than 20 distinct calendar days.
+    Matches the same threshold used by the real-time Telegram alert logic.
+    """
+    try:
+        query = f"""
+        WITH unknown_plates AS (
+            SELECT plate_number
+            FROM `{PROJECT_ID}.{DATASET_ID}.detections`
+            WHERE plate_number IS NOT NULL AND plate_number != ''
+            GROUP BY plate_number
+            HAVING COUNT(DISTINCT DATE(detection_timestamp)) < 20
+        ),
+        recent AS (
+            SELECT
+                d.plate_number,
+                d.detection_timestamp,
+                d.device_id,
+                COALESCE(c.camera_name, d.device_id)  AS camera_name,
+                COALESCE(c.camera_location, '')        AS camera_location,
+                c.latitude,
+                c.longitude
+            FROM `{PROJECT_ID}.{DATASET_ID}.detections` d
+            JOIN unknown_plates u ON d.plate_number = u.plate_number
+            LEFT JOIN `{PROJECT_ID}.{DATASET_ID}.camera_lookup` c ON d.device_id = c.device_id
+            WHERE d.detection_timestamp >= DATETIME_SUB(CURRENT_DATETIME(), INTERVAL 24 HOUR)
+              AND d.plate_number IS NOT NULL AND d.plate_number != ''
+        ),
+        windowed AS (
+            SELECT *,
+                COUNT(*) OVER (
+                    PARTITION BY plate_number
+                    ORDER BY UNIX_SECONDS(TIMESTAMP(detection_timestamp))
+                    RANGE BETWEEN 600 PRECEDING AND CURRENT ROW
+                ) AS detections_in_10min
+            FROM recent
+        ),
+        qualifying AS (
+            SELECT * FROM windowed WHERE detections_in_10min > 10
+        )
+        SELECT
+            plate_number,
+            camera_name,
+            camera_location,
+            latitude,
+            longitude,
+            MAX(detections_in_10min)                                                    AS peak_in_window,
+            COUNT(*)                                                                     AS location_hit_count,
+            MIN(detection_timestamp)                                                     AS first_seen,
+            MAX(detection_timestamp)                                                     AS last_seen,
+            MAX(detection_timestamp) >= DATETIME_SUB(CURRENT_DATETIME(), INTERVAL 10 MINUTE)
+                                                                                         AS is_recent
+        FROM qualifying
+        WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+        GROUP BY plate_number, camera_name, camera_location, latitude, longitude
+        ORDER BY is_recent DESC, peak_in_window DESC, plate_number, last_seen DESC
+        """
+        rows = client.query(query).result()
+        results = []
+        for row in rows:
+            results.append({
+                'plate_number':     row.plate_number,
+                'camera_name':      row.camera_name or '',
+                'camera_location':  row.camera_location or '',
+                'latitude':         float(row.latitude),
+                'longitude':        float(row.longitude),
+                'peak_in_window':   row.peak_in_window,
+                'location_hit_count': row.location_hit_count,
+                'first_seen':       format_timestamp_as_utc(row.first_seen),
+                'last_seen':        format_timestamp_as_utc(row.last_seen),
+                'is_recent':        row.is_recent,
+            })
+        return jsonify({'success': True, 'detections': results, 'count': len(results)})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/camera-lookup', methods=['GET'])
 def api_camera_lookup_list():
     """List all camera_lookup rows merged with every device_id seen in detections.
