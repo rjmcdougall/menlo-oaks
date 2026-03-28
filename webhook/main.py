@@ -378,7 +378,8 @@ def process_license_plate_detection(webhook_data: Dict[str, Any]) -> Dict[str, A
 
             # Check stolen plates registry and alert via Telegram if matched
             if stolen_checker.is_stolen(plate_number):
-                logger.warning(f"🚨 STOLEN PLATE DETECTED: {plate_number}")
+                stolen_recent = recent_tracker.record(plate_number)
+                logger.warning(f"🚨 STOLEN PLATE DETECTED: {plate_number} ({stolen_recent}x in last 10 min)")
                 if _telegram_client:
                     _telegram_client.send_stolen_plate_alert(
                         plate_number=plate_number,
@@ -387,6 +388,7 @@ def process_license_plate_detection(webhook_data: Dict[str, Any]) -> Dict[str, A
                         detection_timestamp=enriched_plate.get("detection_timestamp"),
                         confidence=plate_info.get("confidence"),
                         thumbnail_url=enriched_plate.get("thumbnail_public_url"),
+                        recent_count=stolen_recent,
                     )
 
             # Alert on unknown plates seen >10 times in the last 10 minutes
@@ -402,6 +404,7 @@ def process_license_plate_detection(webhook_data: Dict[str, Any]) -> Dict[str, A
                             detection_timestamp=enriched_plate.get("detection_timestamp"),
                             confidence=plate_info.get("confidence"),
                             thumbnail_url=enriched_plate.get("thumbnail_public_url"),
+                            recent_count=recent_count,
                         )
                 else:
                     logger.debug(f"🔍 Unknown plate {plate_number} seen {recent_count}/10 times — not yet alerting")

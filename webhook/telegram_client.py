@@ -47,6 +47,7 @@ class TelegramClient:
         detection_timestamp: Optional[str] = None,
         confidence: Optional[float] = None,
         thumbnail_url: Optional[str] = None,
+        recent_count: Optional[int] = None,
     ) -> bool:
         """Send a formatted stolen plate alert."""
         ts = detection_timestamp or datetime.now(tz=timezone.utc).isoformat()
@@ -67,6 +68,9 @@ class TelegramClient:
         if confidence is not None:
             lines.append(f"Confidence: {int(confidence * 100)}%")
 
+        if recent_count is not None:
+            lines.append(f"Seen: {recent_count}x in last 10 min")
+
         if thumbnail_url:
             lines.append(f'<a href="{thumbnail_url}">View thumbnail</a>')
 
@@ -80,6 +84,7 @@ class TelegramClient:
         detection_timestamp: Optional[str] = None,
         confidence: Optional[float] = None,
         thumbnail_url: Optional[str] = None,
+        recent_count: Optional[int] = None,
     ) -> bool:
         """Send a formatted alert for an unknown (unrecognised) plate."""
         ts = detection_timestamp or datetime.now(tz=timezone.utc).isoformat()
@@ -99,6 +104,9 @@ class TelegramClient:
 
         if confidence is not None:
             lines.append(f"Confidence: {int(confidence * 100)}%")
+
+        if recent_count is not None:
+            lines.append(f"Seen: {recent_count}x in last 10 min")
 
         if thumbnail_url:
             lines.append(f'<a href="{thumbnail_url}">View thumbnail</a>')
