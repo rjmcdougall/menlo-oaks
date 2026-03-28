@@ -19,6 +19,7 @@ from face_webhook import FaceDetectionHandler
 from photos_client import GooglePhotosClient
 from stolen_plates import StolenPlatesChecker
 from known_plates import KnownPlatesChecker
+from recent_detections import RecentDetectionTracker
 from telegram_client import TelegramClient
 
 # Configure logging for Google Cloud Functions
@@ -83,6 +84,10 @@ known_checker = KnownPlatesChecker(
     project_id=config.GCP_PROJECT_ID,
     dataset_id=config.BIGQUERY_DATASET,
 )
+
+# Track recent detections per plate for unknown-plate alert filtering
+# Only alert if an unknown plate is seen >10 times in a 10-minute window
+recent_tracker = RecentDetectionTracker(window_minutes=10, threshold=10)
 
 # Initialize Telegram client if credentials are configured
 _telegram_client = None
@@ -377,18 +382,22 @@ def process_license_plate_detection(webhook_data: Dict[str, Any]) -> Dict[str, A
                         thumbnail_url=enriched_plate.get("thumbnail_public_url"),
                     )
 
-            # Alert on unknown plates (not yet seen on 20+ distinct days)
+            # Alert on unknown plates seen >10 times in the last 10 minutes
             elif known_checker.is_unknown(plate_number):
-                logger.info(f"🔍 UNKNOWN PLATE DETECTED: {plate_number}")
-                if _telegram_client:
-                    _telegram_client.send_unknown_plate_alert(
-                        plate_number=plate_number,
-                        camera_name=enriched_plate.get("camera_name"),
-                        camera_location=enriched_plate.get("camera_location"),
-                        detection_timestamp=enriched_plate.get("detection_timestamp"),
-                        confidence=plate_info.get("confidence"),
-                        thumbnail_url=enriched_plate.get("thumbnail_public_url"),
-                    )
+                recent_count = recent_tracker.record(plate_number)
+                if recent_tracker.exceeds_threshold(plate_number):
+                    logger.info(f"🔍 UNKNOWN PLATE ALERT: {plate_number} ({recent_count} times in last 10 min)")
+                    if _telegram_client:
+                        _telegram_client.send_unknown_plate_alert(
+                            plate_number=plate_number,
+                            camera_name=enriched_plate.get("camera_name"),
+                            camera_location=enriched_plate.get("camera_location"),
+                            detection_timestamp=enriched_plate.get("detection_timestamp"),
+                            confidence=plate_info.get("confidence"),
+                            thumbnail_url=enriched_plate.get("thumbnail_public_url"),
+                        )
+                else:
+                    logger.debug(f"🔍 Unknown plate {plate_number} seen {recent_count}/10 times — not yet alerting")
         
         return {
             "success": True,
