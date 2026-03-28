@@ -175,6 +175,21 @@ class PhotosUploader:
 
     def upload(self, image_bytes: bytes, filename: str, description: str = "") -> Optional[str]:
         """Upload image bytes. Returns the Google Photos product URL or None."""
+        for attempt in range(1, 4):
+            try:
+                return self._upload_once(image_bytes, filename, description)
+            except requests.exceptions.Timeout:
+                if attempt < 3:
+                    logger.warning(f"  Photos API timeout (attempt {attempt}/3), retrying…")
+                    time.sleep(5 * attempt)
+                else:
+                    logger.error(f"  Photos API timed out after 3 attempts: {filename}")
+                    return None
+            except Exception as e:
+                logger.error(f"  Photos upload failed: {e}")
+                return None
+
+    def _upload_once(self, image_bytes: bytes, filename: str, description: str) -> Optional[str]:
         token = self._token()
 
         upload_resp = requests.post(
@@ -187,7 +202,7 @@ class PhotosUploader:
                 "X-Goog-Upload-File-Name": filename,
             },
             data=image_bytes,
-            timeout=30,
+            timeout=60,
         )
         upload_resp.raise_for_status()
         upload_token = upload_resp.text
@@ -202,7 +217,7 @@ class PhotosUploader:
                     "simpleMediaItem": {"fileName": filename, "uploadToken": upload_token},
                 }],
             },
-            timeout=30,
+            timeout=60,
         )
         create_resp.raise_for_status()
         result = create_resp.json()
