@@ -376,14 +376,19 @@ def process_license_plate_detection(webhook_data: Dict[str, Any]) -> Dict[str, A
             record_ids.append(record_id)
             plate_numbers.append(plate_info["plate_number"])
 
+            # Grab camera coordinates for map images
+            cam_lat = enriched_plate.get("latitude")
+            cam_lng = enriched_plate.get("longitude")
+            cam_name = enriched_plate.get("camera_name")
+
             # Check stolen plates registry and alert via Telegram if matched
             if stolen_checker.is_stolen(plate_number):
-                stolen_recent = recent_tracker.record(plate_number)
+                stolen_recent = recent_tracker.record(plate_number, lat=cam_lat, lng=cam_lng, camera_name=cam_name)
                 logger.warning(f"🚨 STOLEN PLATE DETECTED: {plate_number} ({stolen_recent}x in last 10 min)")
                 if _telegram_client:
                     _telegram_client.send_stolen_plate_alert(
                         plate_number=plate_number,
-                        camera_name=enriched_plate.get("camera_name"),
+                        camera_name=cam_name,
                         camera_location=enriched_plate.get("camera_location"),
                         detection_timestamp=enriched_plate.get("detection_timestamp"),
                         confidence=plate_info.get("confidence"),
@@ -393,18 +398,20 @@ def process_license_plate_detection(webhook_data: Dict[str, Any]) -> Dict[str, A
 
             # Alert on unknown plates seen >10 times in the last 10 minutes
             elif known_checker.is_unknown(plate_number):
-                recent_count = recent_tracker.record(plate_number)
+                recent_count = recent_tracker.record(plate_number, lat=cam_lat, lng=cam_lng, camera_name=cam_name)
                 if recent_tracker.exceeds_threshold(plate_number):
                     logger.info(f"🔍 UNKNOWN PLATE ALERT: {plate_number} ({recent_count} times in last 10 min)")
                     if _telegram_client:
                         _telegram_client.send_unknown_plate_alert(
                             plate_number=plate_number,
-                            camera_name=enriched_plate.get("camera_name"),
+                            camera_name=cam_name,
                             camera_location=enriched_plate.get("camera_location"),
                             detection_timestamp=enriched_plate.get("detection_timestamp"),
                             confidence=plate_info.get("confidence"),
                             thumbnail_url=enriched_plate.get("thumbnail_public_url"),
                             recent_count=recent_count,
+                            locations=recent_tracker.get_locations(plate_number),
+                            mapbox_token=config.MAPBOX_ACCESS_TOKEN or None,
                         )
                 else:
                     logger.debug(f"🔍 Unknown plate {plate_number} seen {recent_count}/10 times — not yet alerting")

@@ -102,7 +102,7 @@ import json, sys
 sensitive = {'GOOGLE_PHOTOS_CLIENT_ID', 'GOOGLE_PHOTOS_CLIENT_SECRET', 'GOOGLE_PHOTOS_REFRESH_TOKEN',
              'GOOGLE_PHOTOS_ALBUM_ID', 'WEBHOOK_SECRET', 'UNIFI_PROTECT_HOST', 'UNIFI_PROTECT_PORT',
              'STORE_IMAGES', 'GCS_DOWNLOAD_VERIFY_SSL', 'GCS_THUMBNAIL_BUCKET',
-             'TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID'}
+             'TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'MAPBOX_ACCESS_TOKEN'}
 try:
     d = json.load(sys.stdin)
     envs = d.get('serviceConfig', {}).get('environmentVariables', {})

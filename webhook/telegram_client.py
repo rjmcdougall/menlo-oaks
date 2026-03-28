@@ -4,13 +4,13 @@ Telegram Bot API client for stolen plate alerts.
 
 import logging
 from datetime import datetime, timezone
-from typing import Optional
+from typing import List, Optional
 
 import requests
 
 logger = logging.getLogger(__name__)
 
-TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
+TELEGRAM_API = "https://api.telegram.org/bot{token}/{method}"
 
 
 class TelegramClient:
@@ -20,11 +20,14 @@ class TelegramClient:
         self.bot_token = bot_token
         self.chat_id = chat_id
 
+    def _api_url(self, method: str) -> str:
+        return TELEGRAM_API.format(token=self.bot_token, method=method)
+
     def send_message(self, text: str) -> bool:
         """Send a plain or HTML-formatted message. Returns True on success."""
         try:
             resp = requests.post(
-                TELEGRAM_API.format(token=self.bot_token),
+                self._api_url("sendMessage"),
                 json={
                     "chat_id": self.chat_id,
                     "text": text,
@@ -38,6 +41,60 @@ class TelegramClient:
         except Exception as e:
             logger.error(f"Telegram send failed: {e}")
             return False
+
+    def send_photo(self, photo_url: str, caption: str = "") -> bool:
+        """Send a photo by URL with an optional HTML caption."""
+        try:
+            resp = requests.post(
+                self._api_url("sendPhoto"),
+                json={
+                    "chat_id": self.chat_id,
+                    "photo": photo_url,
+                    "caption": caption,
+                    "parse_mode": "HTML",
+                },
+                timeout=15,
+            )
+            resp.raise_for_status()
+            return True
+        except Exception as e:
+            logger.error(f"Telegram sendPhoto failed: {e}")
+            return False
+
+    @staticmethod
+    def build_static_map_url(
+        locations: List[dict], mapbox_token: str
+    ) -> Optional[str]:
+        """
+        Build a Mapbox Static Images API URL showing pins for each location.
+        Returns None if no valid coordinates are available.
+        """
+        valid = [
+            loc for loc in locations
+            if loc.get("lat") is not None and loc.get("lng") is not None
+        ]
+        if not valid:
+            return None
+
+        markers = ",".join(
+            f"pin-s+ff4444({loc['lng']:.6f},{loc['lat']:.6f})"
+            for loc in valid
+        )
+
+        # Single point: use fixed zoom; multiple points: auto-fit bounding box
+        if len(valid) == 1:
+            loc = valid[0]
+            viewport = f"{loc['lng']:.6f},{loc['lat']:.6f},15"
+            padding = ""
+        else:
+            viewport = "auto"
+            padding = "&padding=60"
+
+        return (
+            f"https://api.mapbox.com/styles/v1/mapbox/streets-v11/static/"
+            f"{markers}/{viewport}/600x400"
+            f"?access_token={mapbox_token}{padding}"
+        )
 
     def send_stolen_plate_alert(
         self,
@@ -85,6 +142,8 @@ class TelegramClient:
         confidence: Optional[float] = None,
         thumbnail_url: Optional[str] = None,
         recent_count: Optional[int] = None,
+        locations: Optional[List[dict]] = None,
+        mapbox_token: Optional[str] = None,
     ) -> bool:
         """Send a formatted alert for an unknown (unrecognised) plate."""
         ts = detection_timestamp or datetime.now(tz=timezone.utc).isoformat()
@@ -111,4 +170,18 @@ class TelegramClient:
         if thumbnail_url:
             lines.append(f'<a href="{thumbnail_url}">View thumbnail</a>')
 
-        return self.send_message("\n".join(lines))
+        ok = self.send_message("\n".join(lines))
+
+        # Follow up with a map image showing all camera locations hit in the window
+        if locations and mapbox_token:
+            map_url = self.build_static_map_url(locations, mapbox_token)
+            if map_url:
+                location_list = ", ".join(
+                    loc["camera_name"] for loc in locations if loc.get("camera_name")
+                ) or f"{len(locations)} location(s)"
+                self.send_photo(
+                    map_url,
+                    caption=f"📍 <b>{plate_number}</b> — cameras hit: {location_list}",
+                )
+
+        return ok

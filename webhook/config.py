@@ -38,6 +38,9 @@ class Config:
         # Telegram Configuration (for stolen plate alerts)
         self.TELEGRAM_BOT_TOKEN = self._get_env("TELEGRAM_BOT_TOKEN", "")
         self.TELEGRAM_CHAT_ID = self._get_env("TELEGRAM_CHAT_ID", "")
+
+        # Mapbox token (for static map images in Telegram alerts)
+        self.MAPBOX_ACCESS_TOKEN = self._get_env("MAPBOX_ACCESS_TOKEN", "")
         
         # Processing Configuration
         self.MIN_CONFIDENCE_THRESHOLD = float(self._get_env("MIN_CONFIDENCE_THRESHOLD", "0.7"))
