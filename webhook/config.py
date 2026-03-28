@@ -34,6 +34,10 @@ class Config:
         self.GOOGLE_PHOTOS_CLIENT_SECRET = self._get_env("GOOGLE_PHOTOS_CLIENT_SECRET", "")
         self.GOOGLE_PHOTOS_REFRESH_TOKEN = self._get_env("GOOGLE_PHOTOS_REFRESH_TOKEN", "")
         self.GOOGLE_PHOTOS_ALBUM_ID = self._get_env("GOOGLE_PHOTOS_ALBUM_ID", "")
+
+        # Telegram Configuration (for stolen plate alerts)
+        self.TELEGRAM_BOT_TOKEN = self._get_env("TELEGRAM_BOT_TOKEN", "")
+        self.TELEGRAM_CHAT_ID = self._get_env("TELEGRAM_CHAT_ID", "")
         
         # Processing Configuration
         self.MIN_CONFIDENCE_THRESHOLD = float(self._get_env("MIN_CONFIDENCE_THRESHOLD", "0.7"))

@@ -17,6 +17,9 @@ from gcs_client import GCSClient
 from config import Config
 from face_webhook import FaceDetectionHandler
 from photos_client import GooglePhotosClient
+from stolen_plates import StolenPlatesChecker
+from known_plates import KnownPlatesChecker
+from telegram_client import TelegramClient
 
 # Configure logging for Google Cloud Functions
 import google.cloud.logging
@@ -69,6 +72,26 @@ face_handler = FaceDetectionHandler(
     photos_client=_photos_client,
 )
 
+# Initialize stolen plates checker
+stolen_checker = StolenPlatesChecker(
+    project_id=config.GCP_PROJECT_ID,
+    dataset_id=config.BIGQUERY_DATASET,
+)
+
+# Initialize known plates checker (plates seen on 20+ distinct days)
+known_checker = KnownPlatesChecker(
+    project_id=config.GCP_PROJECT_ID,
+    dataset_id=config.BIGQUERY_DATASET,
+)
+
+# Initialize Telegram client if credentials are configured
+_telegram_client = None
+if config.TELEGRAM_BOT_TOKEN and config.TELEGRAM_CHAT_ID:
+    _telegram_client = TelegramClient(config.TELEGRAM_BOT_TOKEN, config.TELEGRAM_CHAT_ID)
+    logger.info("Telegram client initialized")
+else:
+    logger.warning("Telegram credentials not configured — stolen plate alerts will not be sent")
+
 
 @functions_framework.http
 def main(request: Request) -> Dict[str, Any]:
@@ -94,9 +117,22 @@ def main(request: Request) -> Dict[str, Any]:
         if (path.endswith('/health') or path == '/health' or (path == '' and method == 'GET')):
             return health_check(request)
 
+        # API description endpoint
+        if path.endswith('/api') and method == 'GET':
+            return api_description(request)
+
         # Face detection webhook endpoint
         if path.endswith('/face') and method == 'POST':
             return face_detection_webhook(request)
+
+        # Stolen plates management endpoints
+        if path.endswith('/stolen'):
+            if method == 'POST':
+                return stolen_plate_add(request)
+            if method == 'GET':
+                return stolen_plate_list(request)
+            if method == 'DELETE':
+                return stolen_plate_remove(request)
 
         # License plate webhook endpoint (default)
         if method == 'POST':
@@ -209,6 +245,48 @@ def license_plate_webhook(request: Request) -> Dict[str, Any]:
         }), 500
 
 
+def stolen_plate_add(request: Request) -> Dict[str, Any]:
+    """POST /stolen — add a plate number to the stolen registry."""
+    try:
+        body = request.get_json(silent=True) or {}
+        plate_number = body.get("plate_number", "").strip()
+        if not plate_number:
+            return jsonify({"error": "plate_number is required"}), 400
+        inserted = stolen_checker.add_plate(plate_number)
+        if inserted:
+            return jsonify({"status": "added", "plate_number": plate_number.upper()}), 201
+        return jsonify({"status": "already_exists", "plate_number": plate_number.upper()}), 200
+    except Exception as e:
+        logger.error(f"Error adding stolen plate: {e}", exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+def stolen_plate_list(request: Request) -> Dict[str, Any]:
+    """GET /stolen — list all plates in the stolen registry."""
+    try:
+        plates = stolen_checker.list_plates()
+        return jsonify({"plates": plates, "count": len(plates)}), 200
+    except Exception as e:
+        logger.error(f"Error listing stolen plates: {e}", exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+def stolen_plate_remove(request: Request) -> Dict[str, Any]:
+    """DELETE /stolen — remove a plate from the stolen registry."""
+    try:
+        body = request.get_json(silent=True) or {}
+        plate_number = body.get("plate_number", "").strip()
+        if not plate_number:
+            return jsonify({"error": "plate_number is required"}), 400
+        existed = stolen_checker.remove_plate(plate_number)
+        if existed:
+            return jsonify({"status": "removed", "plate_number": plate_number.upper()}), 200
+        return jsonify({"status": "not_found", "plate_number": plate_number.upper()}), 404
+    except Exception as e:
+        logger.error(f"Error removing stolen plate: {e}", exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+
 def process_license_plate_detection(webhook_data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Process license plate detection data from UniFi Protect webhook.
@@ -285,6 +363,32 @@ def process_license_plate_detection(webhook_data: Dict[str, Any]) -> Dict[str, A
             logger.info(f"Called bq insert, record_id: {record_id}")
             record_ids.append(record_id)
             plate_numbers.append(plate_info["plate_number"])
+
+            # Check stolen plates registry and alert via Telegram if matched
+            if stolen_checker.is_stolen(plate_number):
+                logger.warning(f"🚨 STOLEN PLATE DETECTED: {plate_number}")
+                if _telegram_client:
+                    _telegram_client.send_stolen_plate_alert(
+                        plate_number=plate_number,
+                        camera_name=enriched_plate.get("camera_name"),
+                        camera_location=enriched_plate.get("camera_location"),
+                        detection_timestamp=enriched_plate.get("detection_timestamp"),
+                        confidence=plate_info.get("confidence"),
+                        thumbnail_url=enriched_plate.get("thumbnail_public_url"),
+                    )
+
+            # Alert on unknown plates (not yet seen on 20+ distinct days)
+            elif known_checker.is_unknown(plate_number):
+                logger.info(f"🔍 UNKNOWN PLATE DETECTED: {plate_number}")
+                if _telegram_client:
+                    _telegram_client.send_unknown_plate_alert(
+                        plate_number=plate_number,
+                        camera_name=enriched_plate.get("camera_name"),
+                        camera_location=enriched_plate.get("camera_location"),
+                        detection_timestamp=enriched_plate.get("detection_timestamp"),
+                        confidence=plate_info.get("confidence"),
+                        thumbnail_url=enriched_plate.get("thumbnail_public_url"),
+                    )
         
         return {
             "success": True,
@@ -854,6 +958,90 @@ def store_license_plate_image(plate_data: Dict[str, Any]) -> Optional[str]:
 
 
 @functions_framework.http
+def api_description(request: Request) -> Dict[str, Any]:
+    """GET /api — returns a machine-readable description of all available endpoints."""
+    base_url = "https://license-plate-webhook-66u7a42rhq-uc.a.run.app"
+    return jsonify({
+        "service": "Menlo Oaks Security — UniFi Protect Webhook",
+        "base_url": base_url,
+        "endpoints": [
+            {
+                "path": "/health",
+                "method": "GET",
+                "description": "Health check. Returns service status and dependency connectivity.",
+                "response_example": {"status": "healthy"}
+            },
+            {
+                "path": "/api",
+                "method": "GET",
+                "description": "This endpoint. Returns a description of all available API endpoints."
+            },
+            {
+                "path": "/",
+                "method": "POST",
+                "description": "License plate detection webhook. Receives UniFi Protect LPR alarm callbacks, stores detections in BigQuery, uploads thumbnails to GCS, and fires a Telegram alert if the plate is on the stolen list.",
+                "body": {"type": "UniFi Protect alarm webhook payload (JSON)"}
+            },
+            {
+                "path": "/face",
+                "method": "POST",
+                "description": "Face detection webhook. Receives UniFi Protect face detection callbacks, stores events in BigQuery, and uploads thumbnails to Google Photos.",
+                "body": {"type": "UniFi Protect face detection webhook payload (JSON)"}
+            },
+            {
+                "path": "/stolen",
+                "method": "POST",
+                "description": "Add a plate number to the stolen plate registry. Immediately reflected in real-time detection checks.",
+                "body": {"plate_number": "string — the license plate to register as stolen"},
+                "responses": {
+                    "201": "added — plate was new and has been inserted",
+                    "200": "already_exists — plate was already in the registry"
+                }
+            },
+            {
+                "path": "/stolen",
+                "method": "GET",
+                "description": "List all plates currently in the stolen registry.",
+                "response_example": {"plates": [{"plate_number": "ABC123", "inserted_at": "2026-03-28T00:00:00+00:00"}], "count": 1}
+            },
+            {
+                "path": "/stolen",
+                "method": "DELETE",
+                "description": "Remove a plate from the stolen registry.",
+                "body": {"plate_number": "string — the license plate to remove"},
+                "responses": {
+                    "200": "removed — plate existed and was deleted",
+                    "404": "not_found — plate was not in the registry"
+                }
+            }
+        ],
+        "integrations": {
+            "bigquery": {
+                "project": config.GCP_PROJECT_ID,
+                "dataset": config.BIGQUERY_DATASET,
+                "tables": ["detections", "facedetection", "stolenplates"]
+            },
+            "gcs": {
+                "bucket": config.GCS_THUMBNAIL_BUCKET,
+                "purpose": "LPR event thumbnails"
+            },
+            "google_photos": {
+                "enabled": _photos_client is not None,
+                "purpose": "Face detection thumbnails"
+            },
+            "telegram": {
+                "enabled": _telegram_client is not None,
+                "purpose": "Stolen plate and unknown plate real-time alerts"
+            },
+            "known_plates": {
+                "cached_count": known_checker.known_count,
+                "min_days_threshold": 20,
+                "description": "Plates seen on 20+ distinct calendar days are considered known; all others trigger an unknown-plate alert"
+            }
+        }
+    }), 200
+
+
 def health_check(request: Request) -> Dict[str, Any]:
     """
     Health check endpoint for the Cloud Function.
