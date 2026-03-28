@@ -20,6 +20,7 @@ from photos_client import GooglePhotosClient
 from stolen_plates import StolenPlatesChecker
 from known_plates import KnownPlatesChecker
 from recent_detections import RecentDetectionTracker
+from camera_lookup import CameraLookup
 from telegram_client import TelegramClient
 
 # Configure logging for Google Cloud Functions
@@ -88,6 +89,12 @@ known_checker = KnownPlatesChecker(
 # Track recent detections per plate for unknown-plate alert filtering
 # Only alert if an unknown plate is seen >10 times in a 10-minute window
 recent_tracker = RecentDetectionTracker(window_minutes=10, threshold=10)
+
+# Load camera name/location lookup from BigQuery
+camera_lookup = CameraLookup(
+    project_id=config.GCP_PROJECT_ID,
+    dataset_id=config.BIGQUERY_DATASET,
+)
 
 # Initialize Telegram client if credentials are configured
 _telegram_client = None
@@ -693,13 +700,20 @@ def enrich_individual_plate_data(plate_info: Dict[str, Any], webhook_data: Dict[
     # Add camera information - try multiple sources
     camera_info = webhook_data.get("camera", {})
     enriched["camera_id"] = camera_info.get("id", "")
-    enriched["camera_name"] = camera_info.get("name", "")
-    enriched["camera_location"] = camera_info.get("location", "")
-    
+
     # If camera_id is empty, try to use device_id from plate_info (from alarm triggers)
     if not enriched["camera_id"] and plate_info.get("device_id"):
         enriched["camera_id"] = plate_info["device_id"]
         logger.debug(f"Using device_id as camera_id: {plate_info['device_id']}")
+
+    # Look up authoritative camera name/location from camera_lookup table
+    device_id = enriched.get("device_id") or enriched.get("camera_id")
+    if device_id and camera_lookup.get(device_id):
+        enriched["camera_name"] = camera_lookup.camera_name(device_id)
+        enriched["camera_location"] = camera_lookup.camera_location(device_id)
+    else:
+        enriched["camera_name"] = camera_info.get("name", "")
+        enriched["camera_location"] = camera_info.get("location", "")
     
     # Add event information - try multiple sources
     event_info = webhook_data.get("event", {})
@@ -752,8 +766,13 @@ def enrich_plate_data(plate_data: Dict[str, Any], webhook_data: Dict[str, Any]) 
     # Add camera information
     camera_info = webhook_data.get("camera", {})
     enriched["camera_id"] = camera_info.get("id", "")
-    enriched["camera_name"] = camera_info.get("name", "")
-    enriched["camera_location"] = camera_info.get("location", "")
+    device_id = enriched.get("device_id") or enriched.get("camera_id")
+    if device_id and camera_lookup.get(device_id):
+        enriched["camera_name"] = camera_lookup.camera_name(device_id)
+        enriched["camera_location"] = camera_lookup.camera_location(device_id)
+    else:
+        enriched["camera_name"] = camera_info.get("name", "")
+        enriched["camera_location"] = camera_info.get("location", "")
     
     # Add event information
     event_info = webhook_data.get("event", {})
