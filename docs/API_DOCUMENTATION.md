@@ -1,374 +1,264 @@
-# UniFi Protect License Plate Detector - API Documentation
+# Menlo Oaks Security System — API Documentation
 
-## Overview
+## Webhook Cloud Function
 
-This Google Cloud Function receives license plate detection webhooks from UniFi Protect cameras and stores the data in BigQuery. It also provides a health check endpoint for monitoring.
-
-**Base URL:** `https://<region>-<project-id>.cloudfunctions.net/<function-name>`
+**Base URL:** `https://license-plate-webhook-66u7a42rhq-uc.a.run.app`
 
 ---
 
-## Endpoints
+### POST /
+Receive LPR alarm webhook from UniFi Protect. Stores detection in BigQuery, uploads thumbnail to GCS, checks for stolen/unknown plates, sends Telegram alerts.
 
-### 1. Health Check
+**Request body:** UniFi Protect alarm webhook payload (JSON)
 
-Check the health and status of the Cloud Function and its dependencies.
-
-**Endpoint:** `GET /health` or `GET /`
-
-**Method:** `GET`
-
-**Authentication:** None required
-
-#### Success Response (200 OK)
-
-```json
-{
-  "status": "healthy",
-  "service": "unifi-protect-license-plate-detector",
-  "version": "2.0.0",
-  "timestamp": "2024-01-15T10:30:00.000000",
-  "environment": {
-    "function_name": "license-plate-detector",
-    "gcp_project": "your-project-id",
-    "region": "us-central1"
-  },
-  "configuration": {
-    "status": "healthy",
-    "warnings": [],
-    "bigquery_dataset": "license_plates",
-    "bigquery_table": "detections",
-    "webhook_auth": true,
-    "unifi_protect_configured": true
-  },
-  "bigquery": {
-    "status": "healthy",
-    "dataset_location": "US",
-    "table_created": "2024-01-01T00:00:00",
-    "table_rows": 12345,
-    "last_check": "2024-01-15T10:30:00.000000"
-  }
-}
-```
-
-#### Degraded Response (200 OK)
-
-Returned when the function is operational but some non-critical components have issues:
-
-```json
-{
-  "status": "degraded",
-  "service": "unifi-protect-license-plate-detector",
-  "timestamp": "2024-01-15T10:30:00.000000",
-  "bigquery": {
-    "status": "warning",
-    "message": "Could not verify BigQuery connectivity",
-    "error": "Connection timeout"
-  }
-}
-```
-
-#### Unhealthy Response (503 Service Unavailable)
-
-```json
-{
-  "status": "unhealthy",
-  "service": "unifi-protect-license-plate-detector",
-  "timestamp": "2024-01-15T10:30:00.000000",
-  "configuration": {
-    "status": "unhealthy",
-    "issues": ["Missing GCP_PROJECT_ID"],
-    "warnings": []
-  }
-}
-```
-
-#### Error Response (405 Method Not Allowed)
-
-```json
-{
-  "status": "error",
-  "message": "Health check only supports GET method",
-  "timestamp": "2024-01-15T10:30:00.000000"
-}
-```
-
----
-
-### 2. License Plate Webhook
-
-Receive and process license plate detection events from UniFi Protect.
-
-**Endpoint:** `POST /`
-
-**Method:** `POST`
-
-**Content-Type:** `application/json`
-
-**Authentication:** Optional webhook signature via `X-UniFi-Signature` header (if `WEBHOOK_SECRET` is configured)
-
-#### Request Body
-
-The function accepts two webhook formats:
-
-##### Format 1: Alarm-Based (Triggers)
-
-```json
-{
-  "alarm": {
-    "triggers": [
-      {
-        "key": "license_plate_unknown",
-        "value": "ABC1234",
-        "timestamp": "2024-01-15T10:30:00.000Z",
-        "device": "camera-device-id",
-        "eventId": "event-uuid",
-        "zones": {},
-        "group": {
-          "name": "Group Name"
-        }
-      }
-    ],
-    "thumbnail": "data:image/jpeg;base64,/9j/4AAQSkZJRg..."
-  },
-  "camera": {
-    "id": "camera-id",
-    "name": "Front Entrance Camera",
-    "location": "Main Gate"
-  },
-  "event": {
-    "id": "event-uuid",
-    "start": "2024-01-15T10:30:00.000Z"
-  },
-  "snapshot": {
-    "url": "https://...",
-    "width": 1920,
-    "height": 1080
-  },
-  "location": {
-    "lat": 37.4419,
-    "lng": -122.1430
-  }
-}
-```
-
-**Trigger Key Types:**
-- `license_plate_unknown` - Unrecognized plate detected
-- `license_plate_known` - Known/registered plate detected
-- `license_plate` - Generic plate detection
-- `vehicle` - Vehicle detected (may contain embedded plate data)
-
-##### Format 2: Smart Detection (Legacy)
-
-```json
-{
-  "type": "smart_detection",
-  "metadata": {
-    "detected_thumbnails": [
-      {
-        "type": "vehicle",
-        "name": "ABC1234",
-        "clock_best_wall": "2024-01-15T10:30:00.000Z",
-        "cropped_id": "cropped-thumbnail-id",
-        "attributes": {
-          "vehicle_type": {
-            "val": "car",
-            "confidence": 0.95
-          },
-          "color": {
-            "val": "blue",
-            "confidence": 0.87
-          }
-        }
-      }
-    ]
-  }
-}
-```
-
-#### Success Response (200 OK)
-
+**Response 200:**
 ```json
 {
   "status": "success",
   "message": "License plate data stored successfully",
   "plate_number": "ABC1234",
-  "record_id": "uuid-of-record"
+  "record_id": "uuid"
 }
 ```
 
-For multiple plates detected in a single event:
+---
 
+### POST /face
+Receive face detection webhook from UniFi Protect. Downloads thumbnail from NVR, uploads to Google Photos, stores record in BigQuery.
+
+---
+
+### GET /health
+Health check with dependency status (BigQuery, config, caches).
+
+**Response 200:**
+```json
+{
+  "status": "healthy",
+  "bigquery": {"status": "healthy"},
+  "stolen_plates": {"count": 3, "last_refresh": "..."},
+  "known_plates": {"count": 1240, "last_refresh": "..."}
+}
+```
+
+---
+
+### GET /api
+Machine-readable description of all endpoints (used by automation).
+
+---
+
+### POST /stolen
+Add a plate to the stolen registry.
+
+**Request body:**
+```json
+{"plate_number": "ABC1234"}
+```
+
+**Response 200:**
+```json
+{"status": "success", "plate_number": "ABC1234", "message": "Plate added to stolen registry"}
+```
+
+---
+
+### GET /stolen
+List all plates in the stolen registry.
+
+**Response 200:**
 ```json
 {
   "status": "success",
-  "message": "License plate data stored successfully",
-  "plate_number": "ABC1234, XYZ5678",
-  "record_id": "uuid-of-first-record",
-  "total_plates": 2,
-  "all_record_ids": ["uuid-1", "uuid-2"]
+  "plates": [
+    {"plate_number": "ABC1234", "inserted_at": "2026-01-15T10:30:00"}
+  ],
+  "count": 1
 }
 ```
 
-#### Error Responses
+---
 
-**400 Bad Request** - Invalid request format:
+### DELETE /stolen
+Remove a plate from the stolen registry.
 
+**Request body:**
 ```json
-{
-  "error": "Request must be JSON"
-}
+{"plate_number": "ABC1234"}
 ```
 
+**Response 200:**
 ```json
-{
-  "error": "Empty request body"
-}
+{"status": "success", "plate_number": "ABC1234", "message": "Plate removed from stolen registry"}
 ```
 
-**401 Unauthorized** - Invalid webhook signature:
+---
 
+## Alert Logic
+
+Every LPR detection runs through:
+
+1. **Store** — thumbnail → GCS; detection record → BigQuery `detections`
+2. **Camera lookup** — `device_id` resolved to `camera_name`/`camera_location` from `camera_lookup` table
+3. **Stolen check** — plate looked up in `stolenplates` (15-min in-memory cache). If stolen → Telegram 🚨
+4. **Unknown check** — plate checked against `known_plates` cache (plates seen on <20 distinct days = unknown). If unknown → rolling 10-min window counter incremented. If count >10 in 10 min → Telegram 🔍
+
+---
+
+## Webserver (Map Dashboard)
+
+**Base URL:** `https://detection-map-66u7a42rhq-uc.a.run.app`
+
+---
+
+### GET /api/detections
+Query detection records with optional filters.
+
+**Query params:**
+- `start_date` — ISO date string
+- `end_date` — ISO date string
+- `camera` — camera name filter
+- `unknown_only` — `true` to filter unknown plates only
+- `limit` — max records (default 1000)
+
+---
+
+### GET /api/cameras
+All camera locations with detection counts.
+
+---
+
+### GET /api/plates/search
+Autocomplete search for plate numbers.
+
+**Query params:** `q` — partial plate string
+
+---
+
+### GET /api/plates/\<plate\>/locations
+All camera locations where the plate was detected.
+
+---
+
+### GET /api/plates/\<plate\>/detections
+Full detection history for a plate.
+
+---
+
+### GET /api/unknown-activity
+Unknown plates with >10 detections in any 10-min window, over the past 24 hours.
+
+**Response:**
 ```json
-{
-  "error": "Invalid signature"
-}
-```
-
-**405 Method Not Allowed** - Wrong HTTP method:
-
-```json
-{
-  "error": "Only POST requests are allowed for webhooks"
-}
-```
-
-**404 Not Found** - Invalid endpoint:
-
-```json
-{
-  "error": "Invalid endpoint",
-  "message": "Use POST for webhooks or GET /health for health checks",
-  "received": {
-    "method": "PUT",
-    "path": "/invalid"
+[
+  {
+    "plate_number": "XYZ123",
+    "camera_name": "Entrada Gate",
+    "camera_location": "Entrada Dr",
+    "latitude": 37.44,
+    "longitude": -122.18,
+    "max_detections_in_10min": 14,
+    "detection_count": 22,
+    "first_seen": "2026-03-28T10:00:00",
+    "last_seen": "2026-03-28T10:45:00",
+    "is_recent": true
   }
-}
+]
 ```
 
-**500 Internal Server Error** - Processing failure:
+`is_recent` is `true` if `last_seen` is within the past 10 minutes.
 
+---
+
+### GET /api/camera-lookup
+All rows from `camera_lookup` table plus any device_ids in `detections` that are not registered.
+
+**Response:**
 ```json
-{
-  "status": "error",
-  "message": "No valid license plate data found"
-}
+[
+  {
+    "device_id": "abc123",
+    "camera_name": "Entrada Gate",
+    "camera_location": "Entrada Dr",
+    "latitude": 37.44,
+    "longitude": -122.18,
+    "camera_model": "UVC-G4-Pro",
+    "is_active": true,
+    "notes": null,
+    "installation_date": null,
+    "registered": true,
+    "detection_count": 45231
+  }
+]
 ```
 
+Unregistered entries have `registered: false` and `camera_name: null`.
+
+---
+
+### POST /api/camera-lookup
+Add a new camera_lookup row.
+
+**Request body:**
 ```json
 {
-  "status": "error",
-  "message": "Internal server error"
+  "device_id": "abc123",
+  "camera_name": "New Camera",
+  "camera_location": "Oak Ave",
+  "latitude": 37.44,
+  "longitude": -122.18,
+  "camera_model": "UVC-G4-Pro",
+  "is_active": true,
+  "notes": "Installed March 2026",
+  "installation_date": "2026-03-01"
 }
 ```
 
 ---
 
-## Data Storage
-
-### BigQuery Schema
-
-Detection records are stored in BigQuery with the following fields:
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `record_id` | STRING | Unique identifier for the detection |
-| `plate_number` | STRING | Detected license plate number |
-| `confidence` | FLOAT | Detection confidence score (0-1) |
-| `detection_timestamp` | TIMESTAMP | When the detection occurred |
-| `plate_detection_timestamp` | TIMESTAMP | Original timestamp from webhook |
-| `vehicle_type` | STRING | Type of vehicle (car, truck, etc.) |
-| `vehicle_type_confidence` | FLOAT | Vehicle type confidence |
-| `vehicle_color` | STRING | Vehicle color |
-| `vehicle_color_confidence` | FLOAT | Color confidence |
-| `camera_id` | STRING | UniFi camera device ID |
-| `camera_name` | STRING | Camera display name |
-| `camera_location` | STRING | Camera location description |
-| `event_id` | STRING | UniFi Protect event ID |
-| `event_timestamp` | TIMESTAMP | Event start time |
-| `detection_type` | STRING | Type of detection trigger |
-| `thumbnail_public_url` | STRING | URL to stored thumbnail image |
-| `cropped_thumbnail_public_url` | STRING | URL to cropped plate image |
-| `snapshot_url` | STRING | Original snapshot URL |
-| `latitude` | FLOAT | Camera latitude |
-| `longitude` | FLOAT | Camera longitude |
-| `raw_detection_data` | STRING | Full webhook payload (JSON) |
-
-### Thumbnail Storage (Google Cloud Storage)
-
-When image storage is enabled (`STORE_IMAGES=true`), thumbnails are uploaded to GCS:
-
-- **Alarm thumbnails**: Full scene images from detection events
-- **Cropped thumbnails**: Cropped license plate images (requires `STORE_CROPPED_THUMBNAILS=true`)
-- **Event snapshots**: High-resolution snapshots (requires `STORE_EVENT_SNAPSHOTS=true`)
+### PUT /api/camera-lookup/\<device_id\>
+Update an existing camera_lookup row (partial update supported).
 
 ---
 
-## Configuration
+### DELETE /api/camera-lookup/\<device_id\>
+Delete a camera_lookup row.
 
-### Required Environment Variables
+---
+
+## BigQuery Tables (`menlo-oaks.license_plates`)
+
+| Table | Description |
+|-------|-------------|
+| `detections` | All LPR events (~2.3M rows as of Mar 2026). `detection_timestamp` is DATETIME. |
+| `facedetection` | Face detection events, partitioned by day |
+| `stolenplates` | Stolen plate registry (`plate_number`, `inserted_at`) |
+| `camera_lookup` | Camera metadata (`device_id`, `camera_name`, `camera_location`, `latitude`, `longitude`, `camera_model`, `is_active`, `notes`, `installation_date`, `camera_id`, `created_at`, `updated_at`) |
+| `detections_with_camera_info` | View joining `detections` + `camera_lookup` on `device_id` |
+
+---
+
+## Environment Variables
+
+### Webhook Function
 
 | Variable | Description |
 |----------|-------------|
-| `GCP_PROJECT_ID` | Google Cloud project ID |
-| `BIGQUERY_DATASET` | BigQuery dataset name |
-| `BIGQUERY_TABLE` | BigQuery table name |
+| `GCP_PROJECT_ID` | `menlo-oaks` |
+| `BIGQUERY_DATASET` | `license_plates` |
+| `BIGQUERY_TABLE` | `detections` |
+| `GCS_BUCKET` | GCS bucket for thumbnails |
+| `UNIFI_PROTECT_HOST` | NVR host (`10.0.9.70`) |
+| `UNIFI_PROTECT_PORT` | NVR port (`443`) |
+| `UNIFI_PROTECT_TOKEN` | NVR API token |
+| `TELEGRAM_BOT_TOKEN` | Telegram bot token |
+| `TELEGRAM_CHAT_ID` | Telegram channel ID (`-1003697610260`) |
+| `GOOGLE_PHOTOS_TOKEN` | Google Photos OAuth token |
 
-### Optional Environment Variables
+### Webserver Function
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `WEBHOOK_SECRET` | - | Secret for webhook signature validation |
-| `STORE_IMAGES` | `false` | Enable thumbnail storage to GCS |
-| `STORE_CROPPED_THUMBNAILS` | `false` | Store cropped plate images |
-| `STORE_EVENT_SNAPSHOTS` | `false` | Store full event snapshots |
-| `UNIFI_PROTECT_HOST` | - | UniFi Protect controller hostname |
-| `UNIFI_PROTECT_PORT` | `443` | UniFi Protect controller port |
-
----
-
-## Local Development
-
-Run the function locally:
-
-```bash
-python main.py
-```
-
-The server starts on `http://0.0.0.0:8080` with:
-- Health check: `GET http://localhost:8080/health`
-- Webhooks: `POST http://localhost:8080/`
-
-### Example Webhook Test
-
-```bash
-curl -X POST http://localhost:8080/ \
-  -H "Content-Type: application/json" \
-  -d '{
-    "alarm": {
-      "triggers": [
-        {
-          "key": "license_plate_unknown",
-          "value": "TEST123",
-          "device": "test-camera",
-          "eventId": "test-event-1"
-        }
-      ]
-    }
-  }'
-```
-
-### Example Health Check
-
-```bash
-curl http://localhost:8080/health
-```
+| Variable | Description |
+|----------|-------------|
+| `GCP_PROJECT_ID` | `menlo-oaks` |
+| `BIGQUERY_DATASET` | `license_plates` |
+| `MAPBOX_ACCESS_TOKEN` | Mapbox GL JS token |

@@ -1,245 +1,208 @@
-# UniFi Protect License Plate Detection
+# Menlo Oaks — License Plate & Security Detection System
 
-A system for detecting and tracking license plates from UniFi Protect cameras, consisting of a webhook receiver (Cloud Function), a web-based map dashboard, and utility scripts.
+A production system for detecting and tracking license plates from UniFi Protect cameras, with real-time stolen/unknown vehicle alerting, a face detection pipeline, and a web map dashboard.
 
-## Features
+**Deployed on:** Google Cloud (project `menlo-oaks`, region `us-central1`)
 
-- **Real-time Processing**: Receives webhooks from UniFi Protect immediately when license plates are detected
-- **Multiple Webhook Formats**: Supports both alarm-based triggers and smart detection events
-- **BigQuery Integration**: Stores detection data with full schema in BigQuery for analysis
-- **Thumbnail Storage**: Optional image storage in Google Cloud Storage (full scene + cropped plates)
-- **Web Dashboard**: Interactive map interface to view and search detections
-- **Vehicle Attributes**: Extracts vehicle type and color when available
-- **Health Monitoring**: Comprehensive health check endpoints with dependency status
+---
 
 ## Architecture
 
 ```
-┌─────────────────┐     ┌──────────────────────┐     ┌─────────────┐
-│  UniFi Protect  │────▶│  Webhook             │────▶│  BigQuery   │
-│  Cameras        │     │  (Cloud Function)    │     │  (data)     │
-└─────────────────┘     └──────────────────────┘     └─────────────┘
-                                   │                        │
-                                   ▼                        │
-                        ┌─────────────────────┐            │
-                        │  Cloud Storage      │            │
-                        │  (thumbnails)       │            │
-                        └─────────────────────┘            │
-                                                           │
-                        ┌─────────────────────┐            │
-                        │  Webserver          │◀───────────┘
-                        │  (Map Dashboard)    │
-                        └─────────────────────┘
+┌─────────────────────┐     ┌──────────────────────────────┐     ┌──────────────────┐
+│  UniFi Protect NVR  │────▶│  Webhook (Cloud Function)    │────▶│  BigQuery        │
+│  Cameras / LPR      │     │  license-plate-webhook       │     │  license_plates  │
+└─────────────────────┘     └──────────────────────────────┘     └──────────────────┘
+                                          │                               │
+                             ┌────────────┼────────────┐                 │
+                             ▼            ▼            ▼                 │
+                        ┌─────────┐  ┌────────┐  ┌──────────┐           │
+                        │   GCS   │  │Telegram│  │ Google   │           │
+                        │thumbnails│  │ Alerts │  │ Photos   │           │
+                        └─────────┘  └────────┘  └──────────┘           │
+                                                                         │
+                             ┌───────────────────────────┐               │
+                             │  Webserver (Cloud Function)│◀─────────────┘
+                             │  detection-map             │
+                             └───────────────────────────┘
 ```
+
+### BigQuery Tables (`license_plates` dataset)
+
+| Table | Description |
+|---|---|
+| `detections` | All LPR events (~2.3M rows as of Mar 2026) |
+| `facedetection` | Face detection events, partitioned by day |
+| `stolenplates` | Stolen plate registry (`plate_number`, `inserted_at`) |
+| `camera_lookup` | Camera metadata (`device_id`, name, location, lat/lng, model) |
+| `detections_with_camera_info` | View joining detections + camera_lookup |
+
+---
 
 ## Project Structure
 
 ```
 protectmenlo/
-├── README.md                   # This file
-├── webhook/                    # Cloud Function - receives UniFi Protect webhooks
-│   ├── main.py                 # Entry point & webhook handler
-│   ├── config.py               # Configuration management
-│   ├── bigquery_client.py      # BigQuery data storage
-│   ├── gcs_client.py           # Cloud Storage for thumbnails
-│   ├── unifi_protect_client.py # UniFi Protect API client
-│   ├── deploy.sh               # Deployment script
-│   ├── requirements.txt        # Python dependencies
-│   ├── .env.template           # Environment variable template
-│   └── .gcloudignore           # Files to exclude from deployment
-├── webserver/                  # Flask web app - map dashboard & API
-│   ├── main.py                 # Flask app with API endpoints
-│   ├── templates/              # HTML templates
-│   │   └── map.html            # Interactive map interface
-│   ├── static/                 # Static assets (CSS, JS)
-│   ├── deploy.sh               # Deployment script
-│   └── requirements.txt        # Python dependencies
-├── scripts/                    # Utility & maintenance scripts
-│   ├── backfill_detections.py  # Backfill historical data
-│   ├── create_camera_lookup.py # Camera location setup
-│   ├── update_camera_lookup.py # Update camera metadata
-│   ├── query_images.py         # Query stored images
-│   ├── setup_env.py            # Environment setup helper
-│   ├── test_*.py               # Test scripts
-│   ├── debug_*.py              # Debug utilities
-│   └── sql/                    # SQL scripts
-└── docs/                       # Documentation
-    ├── API_DOCUMENTATION.md    # Webhook API reference
-    ├── CLI_COMMANDS_REFERENCE.md
-    ├── IMAGE_URLS_GUIDE.md
-    ├── README_BACKFILL.md
-    └── THUMBNAIL_IMPLEMENTATION.md
+├── README.md
+├── webhook/                        # Cloud Function — receives UniFi Protect webhooks
+│   ├── main.py                     # Router + all webhook handlers
+│   ├── config.py                   # Configuration from environment variables
+│   ├── bigquery_client.py          # LPR detection storage
+│   ├── gcs_client.py               # Thumbnail storage (GCS)
+│   ├── face_webhook.py             # Face detection webhook handler
+│   ├── photos_client.py            # Google Photos upload (face thumbnails)
+│   ├── stolen_plates.py            # Stolen plate registry (BQ + in-memory cache)
+│   ├── known_plates.py             # Known plate cache (seen ≥20 distinct days)
+│   ├── recent_detections.py        # Rolling 10-min detection counter (in-memory)
+│   ├── camera_lookup.py            # Camera name/location lookup from BQ
+│   ├── telegram_client.py          # Telegram Bot API alerts
+│   ├── deploy.sh                   # Deployment script (preserves secrets)
+│   └── requirements.txt
+├── webserver/                      # Cloud Function — map dashboard
+│   ├── main.py                     # Flask app + API endpoints
+│   ├── templates/map.html          # Single-page app (map, stats, controls, settings)
+│   ├── deploy.sh
+│   └── requirements.txt
+├── scripts/                        # Utility & maintenance scripts
+│   ├── backfill_face_photos.py     # Batch-upload historical face thumbnails to Google Photos
+│   ├── backfill_detections.py      # Backfill historical LPR data
+│   ├── create_camera_lookup.py     # Initial camera_lookup table setup
+│   ├── update_camera_lookup.py     # Update camera metadata
+│   └── sql/                        # BigQuery SQL queries
+└── docs/                           # Additional documentation
 ```
 
-## Components
+---
 
-### Webhook (Cloud Function)
+## Webhook Cloud Function
 
-Receives license plate detection events from UniFi Protect and stores them in BigQuery.
+**URL:** `https://license-plate-webhook-66u7a42rhq-uc.a.run.app`
+
+### Endpoints
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/` | POST | LPR alarm webhook from UniFi Protect |
+| `/face` | POST | Face detection webhook from UniFi Protect |
+| `/stolen` | POST | Add a plate to the stolen registry |
+| `/stolen` | GET | List all stolen plates |
+| `/stolen` | DELETE | Remove a plate from the stolen registry |
+| `/health` | GET | Health check with dependency status |
+| `/api` | GET | Machine-readable API description (used by automation) |
+
+### Real-time Alert Logic
+
+Every LPR detection runs through this pipeline:
+
+1. **Store** — thumbnail downloaded from NVR → GCS; detection record → BigQuery
+2. **Camera lookup** — `device_id` resolved to `camera_name`/`camera_location` from `camera_lookup` table
+3. **Stolen check** — plate looked up in `stolenplates` BQ table (15-min in-memory cache). If stolen → Telegram alert 🚨
+4. **Unknown check** — plate checked against `known_plates` cache (seen on <20 distinct days = unknown). If unknown → rolling 10-min window counter incremented. If count >10 in 10 min → Telegram alert 🔍
+
+### In-memory Caches (per Cloud Function instance)
+
+| Cache | TTL | Source |
+|---|---|---|
+| Stolen plates | 15 min | `license_plates.stolenplates` |
+| Known plates | 1 hour | `license_plates.detections` (HAVING COUNT(DISTINCT DATE) ≥ 20) |
+| Recent detections | Rolling 10-min deque | In-memory only |
+| Camera lookup | Cold-start only | `license_plates.camera_lookup` |
+
+### Deploy
 
 ```bash
 cd webhook
-./deploy.sh production your-project-id
+./deploy.sh production menlo-oaks
 ```
 
-See [docs/API_DOCUMENTATION.md](docs/API_DOCUMENTATION.md) for webhook API details.
+The deploy script preserves sensitive env vars (Telegram, Google Photos, GCS, UniFi) across redeploys. See `/Users/rmc/docs/menlooaks/runtime-config.md` for all secret values (local only, never committed).
 
-### Webserver (Map Dashboard)
+---
 
-Interactive web interface for viewing detections on a map, searching plates, and viewing statistics.
+## Webserver (Map Dashboard)
+
+**URL:** `https://detection-map-66u7a42rhq-uc.a.run.app`
+
+### Features
+
+- **Interactive Mapbox map** of all LPR detections with thumbnails
+- **Unknown Activity overlay** (on by default) — car markers per unknown plate that exceeded 10 detections in a 10-min window over the past 24h; live plates pulse red
+- **Date/camera/plate filtering** with autocomplete
+- **Stats dashboard** — totals, active cameras, unique plates
+- **Settings tab** — full CRUD editor for the `camera_lookup` table; shows all device IDs seen in detections (unregistered ones highlighted in amber with detection counts)
+
+### API Endpoints
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/detections` | GET | Query detections (date range, camera, unknown_only) |
+| `/api/cameras` | GET | Camera list with detection counts |
+| `/api/plates/search` | GET | Plate number autocomplete |
+| `/api/plates/<plate>/locations` | GET | All camera locations for a plate |
+| `/api/plates/<plate>/detections` | GET | Detection history for a plate |
+| `/api/unknown-activity` | GET | Unknown plates with >10 detections in any 10-min window (past 24h) |
+| `/api/camera-lookup` | GET | All camera_lookup rows + unregistered device_ids from detections |
+| `/api/camera-lookup` | POST | Add a camera_lookup row |
+| `/api/camera-lookup/<device_id>` | PUT | Update a camera_lookup row |
+| `/api/camera-lookup/<device_id>` | DELETE | Delete a camera_lookup row |
+
+### Deploy
 
 ```bash
 cd webserver
-./deploy.sh production your-project-id
+GCP_PROJECT_ID=menlo-oaks BIGQUERY_DATASET=license_plates MAPBOX_ACCESS_TOKEN=<token> ./deploy.sh
 ```
 
-**Features:**
-- Mapbox-powered interactive map
-- Date range filtering
-- Camera location filtering
-- Plate search with autocomplete
-- "Unknown vehicles" filter (plates seen < 20 times)
-- Detection history per plate
+---
 
-### Scripts
+## Telegram Alerts
 
-Utility scripts for setup, maintenance, and debugging.
+Alerts go to the **Menlo Oaks Security Bot** channel (`-1003697610260`).
 
+| Alert | Trigger |
+|---|---|
+| 🚨 STOLEN PLATE DETECTED | Plate matches `stolenplates` table |
+| 🔍 UNKNOWN PLATE DETECTED | Unknown plate seen >10 times in 10 min |
+
+---
+
+## Face Detection Pipeline
+
+UniFi Protect sends face detection events to `POST /face`. The handler:
+1. Downloads thumbnail from NVR (`/proxy/protect/api/events/{id}/thumbnail`)
+2. Uploads to Google Photos album (`facedetection`)
+3. Stores event record in `license_plates.facedetection`
+
+**Backfill historical face events:**
 ```bash
 cd scripts
-python backfill_detections.py  # Backfill historical data
-python create_camera_lookup.py # Set up camera locations
+python backfill_face_photos.py \
+  --token <NVR_TOKEN> --csrf <CSRF_TOKEN> \
+  --all --project menlo-oaks
 ```
 
-## Quick Start
-
-### 1. Configure Webhook
-
-```bash
-cd webhook
-cp .env.template .env.development
-# Edit .env.development with your values
-```
-
-### 2. Deploy Webhook
-
-```bash
-cd webhook
-chmod +x deploy.sh
-./deploy.sh production your-project-id
-```
-
-### 3. Configure UniFi Protect
-
-Point your UniFi Protect webhook to:
-```
-https://<region>-<project-id>.cloudfunctions.net/license-plate-webhook
-```
-
-### 4. Deploy Webserver (Optional)
-
-```bash
-cd webserver
-./deploy.sh production your-project-id
-```
-
-## Local Development
-
-### Webhook
-
-```bash
-cd webhook
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-export GCP_PROJECT_ID=your-project-id
-python main.py
-# Runs on http://localhost:8080
-```
-
-### Webserver
-
-```bash
-cd webserver
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-export GCP_PROJECT_ID=your-project-id
-export MAPBOX_ACCESS_TOKEN=your-token
-python main.py
-# Runs on http://localhost:8080
-```
-
-## Configuration
-
-### Webhook Environment Variables
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `GCP_PROJECT_ID` | Yes | - | Google Cloud project ID |
-| `BIGQUERY_DATASET` | No | `license_plates` | BigQuery dataset name |
-| `BIGQUERY_TABLE` | No | `detections` | BigQuery table name |
-| `WEBHOOK_SECRET` | No | - | Webhook signature validation |
-| `MIN_CONFIDENCE_THRESHOLD` | No | `0.7` | Minimum detection confidence |
-| `STORE_IMAGES` | No | `false` | Enable thumbnail storage |
-| `GCS_THUMBNAIL_BUCKET` | No | `menlo_oaks_thumbnails` | GCS bucket for images |
-
-See [webhook/.env.template](webhook/.env.template) for full list.
-
-### Webserver Environment Variables
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `GCP_PROJECT_ID` | Yes | Google Cloud project ID |
-| `BIGQUERY_DATASET` | No | BigQuery dataset (default: `license_plates`) |
-| `MAPBOX_ACCESS_TOKEN` | Yes | Mapbox API token for map rendering |
-
-## API Endpoints
-
-### Webhook
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/health` | GET | Health check |
-| `/` | POST | Receive webhook from UniFi Protect |
-
-### Webserver
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/` | GET | Map interface |
-| `/api/detections` | GET | Query detections with filters |
-| `/api/cameras` | GET | List camera locations |
-| `/api/plates/search` | GET | Search plates (autocomplete) |
-| `/api/plates/<plate>/locations` | GET | Locations where plate was seen |
-| `/api/plates/<plate>/detections` | GET | Detection history for plate |
+---
 
 ## Monitoring
 
-### Webhook Logs
-
 ```bash
-gcloud functions logs read license-plate-webhook --region=us-central1
+# Webhook logs
+gcloud functions logs read license-plate-webhook --region=us-central1 --project=menlo-oaks
+
+# Webserver logs
+gcloud functions logs read detection-map --region=us-central1 --project=menlo-oaks
+
+# Health checks
+curl https://license-plate-webhook-66u7a42rhq-uc.a.run.app/health
+curl https://license-plate-webhook-66u7a42rhq-uc.a.run.app/api
 ```
 
-### Health Checks
+---
 
-```bash
-# Webhook
-curl https://<webhook-url>/health
+## Configuration & Secrets
 
-# Webserver
-curl https://<webserver-url>/health
+Runtime secrets (Telegram, Google Photos OAuth, NVR host, etc.) are documented locally at:
 ```
-
-## Documentation
-
-- [API Documentation](docs/API_DOCUMENTATION.md) - Webhook request/response formats
-- [Backfill Guide](docs/README_BACKFILL.md) - Backfilling historical data
-- [Thumbnail Implementation](docs/THUMBNAIL_IMPLEMENTATION.md) - Image storage details
-- [Image URLs Guide](docs/IMAGE_URLS_GUIDE.md) - Working with stored images
-- [CLI Commands](docs/CLI_COMMANDS_REFERENCE.md) - Useful CLI commands
-
-## License
-
-Private - All rights reserved
+/Users/rmc/docs/menlooaks/runtime-config.md
+```
+This file is **never committed to git**.
