@@ -473,6 +473,148 @@ def api_plate_detections(plate_number):
             'error': str(e)
         }), 500
 
+@app.route('/api/camera-lookup', methods=['GET'])
+def api_camera_lookup_list():
+    """List all camera_lookup rows merged with every device_id seen in detections.
+    Unregistered device_ids appear with blank fields so the user knows to fill them in."""
+    try:
+        query = f"""
+        SELECT
+            d.device_id,
+            d.detection_count,
+            c.camera_id,
+            c.camera_name,
+            c.camera_location,
+            c.latitude,
+            c.longitude,
+            c.camera_model,
+            c.is_active,
+            c.notes,
+            c.installation_date,
+            (c.device_id IS NOT NULL) AS registered
+        FROM (
+            SELECT device_id, COUNT(*) AS detection_count
+            FROM `{PROJECT_ID}.{DATASET_ID}.detections`
+            WHERE device_id IS NOT NULL AND device_id != ''
+            GROUP BY device_id
+        ) d
+        LEFT JOIN `{PROJECT_ID}.{DATASET_ID}.camera_lookup` c ON d.device_id = c.device_id
+        ORDER BY registered ASC, d.detection_count DESC, c.camera_location, c.camera_name
+        """
+        rows = client.query(query).result()
+        cameras = []
+        for row in rows:
+            cameras.append({
+                'device_id': row.device_id,
+                'detection_count': row.detection_count,
+                'registered': row.registered,
+                'camera_id': row.camera_id or '',
+                'camera_name': row.camera_name or '',
+                'camera_location': row.camera_location or '',
+                'latitude': float(row.latitude) if row.latitude is not None else None,
+                'longitude': float(row.longitude) if row.longitude is not None else None,
+                'camera_model': row.camera_model or '',
+                'is_active': row.is_active,
+                'notes': row.notes or '',
+                'installation_date': str(row.installation_date) if row.installation_date else '',
+            })
+        return jsonify({'success': True, 'cameras': cameras})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/camera-lookup', methods=['POST'])
+def api_camera_lookup_add():
+    """Add a new row to camera_lookup."""
+    try:
+        data = request.get_json(force=True) or {}
+        device_id = (data.get('device_id') or '').strip()
+        camera_name = (data.get('camera_name') or '').strip()
+        if not device_id:
+            return jsonify({'success': False, 'error': 'device_id is required'}), 400
+        if not camera_name:
+            return jsonify({'success': False, 'error': 'camera_name is required'}), 400
+
+        lat = f"{float(data['latitude'])}" if data.get('latitude') not in (None, '') else 'NULL'
+        lng = f"{float(data['longitude'])}" if data.get('longitude') not in (None, '') else 'NULL'
+        active = 'TRUE' if data.get('is_active', True) else 'FALSE'
+        inst = f"'{data['installation_date']}'" if data.get('installation_date') else 'NULL'
+
+        query = f"""
+        INSERT INTO `{PROJECT_ID}.{DATASET_ID}.camera_lookup`
+            (device_id, camera_id, camera_name, camera_location, latitude, longitude,
+             camera_model, is_active, notes, installation_date, created_at, updated_at)
+        VALUES
+            (@device_id, @camera_id, @camera_name, @camera_location, {lat}, {lng},
+             @camera_model, {active}, @notes, {inst}, CURRENT_DATETIME(), CURRENT_DATETIME())
+        """
+        job_config = bigquery.QueryJobConfig(query_parameters=[
+            bigquery.ScalarQueryParameter('device_id', 'STRING', device_id),
+            bigquery.ScalarQueryParameter('camera_id', 'STRING', data.get('camera_id', '') or device_id),
+            bigquery.ScalarQueryParameter('camera_name', 'STRING', camera_name),
+            bigquery.ScalarQueryParameter('camera_location', 'STRING', data.get('camera_location', '')),
+            bigquery.ScalarQueryParameter('camera_model', 'STRING', data.get('camera_model', '')),
+            bigquery.ScalarQueryParameter('notes', 'STRING', data.get('notes', '')),
+        ])
+        client.query(query, job_config=job_config).result()
+        return jsonify({'success': True}), 201
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/camera-lookup/<device_id>', methods=['PUT'])
+def api_camera_lookup_update(device_id):
+    """Update an existing camera_lookup row by device_id."""
+    try:
+        data = request.get_json(force=True) or {}
+        lat = f"{float(data['latitude'])}" if data.get('latitude') not in (None, '') else 'NULL'
+        lng = f"{float(data['longitude'])}" if data.get('longitude') not in (None, '') else 'NULL'
+        active = 'TRUE' if data.get('is_active', True) else 'FALSE'
+        inst = f"'{data['installation_date']}'" if data.get('installation_date') else 'NULL'
+
+        query = f"""
+        UPDATE `{PROJECT_ID}.{DATASET_ID}.camera_lookup`
+        SET camera_name = @camera_name,
+            camera_location = @camera_location,
+            latitude = {lat},
+            longitude = {lng},
+            camera_model = @camera_model,
+            is_active = {active},
+            notes = @notes,
+            installation_date = {inst},
+            updated_at = CURRENT_DATETIME()
+        WHERE device_id = @device_id
+        """
+        job_config = bigquery.QueryJobConfig(query_parameters=[
+            bigquery.ScalarQueryParameter('camera_name', 'STRING', data.get('camera_name', '')),
+            bigquery.ScalarQueryParameter('camera_location', 'STRING', data.get('camera_location', '')),
+            bigquery.ScalarQueryParameter('camera_model', 'STRING', data.get('camera_model', '')),
+            bigquery.ScalarQueryParameter('notes', 'STRING', data.get('notes', '')),
+            bigquery.ScalarQueryParameter('device_id', 'STRING', device_id),
+        ])
+        client.query(query, job_config=job_config).result()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/camera-lookup/<device_id>', methods=['DELETE'])
+def api_camera_lookup_delete(device_id):
+    """Delete a camera_lookup row by device_id."""
+    try:
+        query = f"""
+        DELETE FROM `{PROJECT_ID}.{DATASET_ID}.camera_lookup`
+        WHERE device_id = @device_id
+        """
+        job_config = bigquery.QueryJobConfig(query_parameters=[
+            bigquery.ScalarQueryParameter('device_id', 'STRING', device_id),
+        ])
+        client.query(query, job_config=job_config).result()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/static/<path:filename>')
 def serve_static(filename):
     """Serve static files."""

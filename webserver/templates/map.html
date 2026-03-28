@@ -525,6 +525,164 @@
             margin-left: 10px;
         }
 
+        /* Settings Section */
+        #settings-section {
+            background: #f8fafc;
+            overflow-y: auto;
+        }
+
+        .settings-content {
+            padding: 30px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .settings-card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            border: 1px solid #e2e8f0;
+            margin-bottom: 30px;
+            overflow: hidden;
+        }
+
+        .settings-card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 20px 24px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .settings-card-header h3 {
+            color: #2d3748;
+            font-size: 18px;
+        }
+
+        .settings-card-header h3 i {
+            margin-right: 10px;
+            color: #667eea;
+        }
+
+        .btn-small {
+            padding: 8px 14px;
+            font-size: 13px;
+        }
+
+        .camera-form {
+            padding: 20px 24px;
+            background: #f8fafc;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .camera-form h4 {
+            margin-bottom: 16px;
+            color: #2d3748;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 14px;
+            margin-bottom: 16px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            color: #718096;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 5px;
+        }
+
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            font-size: 14px;
+            color: #2d3748;
+            background: white;
+            transition: border-color 0.2s;
+        }
+
+        .form-group input:focus, .form-group select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .form-error {
+            color: #e53e3e;
+            font-size: 13px;
+            margin-bottom: 12px;
+        }
+
+        .form-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .lookup-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+
+        .lookup-table th {
+            text-align: left;
+            padding: 12px 16px;
+            background: #f8fafc;
+            color: #718096;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .lookup-table td {
+            padding: 12px 16px;
+            border-bottom: 1px solid #f1f5f9;
+            color: #2d3748;
+            vertical-align: middle;
+        }
+
+        .lookup-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .lookup-table tr:hover td {
+            background: #f8fafc;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 9999px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .badge-green { background: #c6f6d5; color: #276749; }
+        .badge-gray  { background: #e2e8f0; color: #4a5568; }
+
+        .action-btn {
+            background: none;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            padding: 5px 10px;
+            cursor: pointer;
+            font-size: 12px;
+            color: #4a5568;
+            transition: all 0.2s;
+            margin-right: 4px;
+        }
+
+        .action-btn:hover { background: #f1f5f9; }
+        .action-btn.delete:hover { background: #fff5f5; border-color: #fc8181; color: #e53e3e; }
+
         /* Mobile responsiveness */
         @media (max-width: 768px) {
             .nav-container {
@@ -626,6 +784,10 @@
                 <button class="nav-item" data-section="controls">
                     <i class="fas fa-sliders-h"></i>
                     <span>Controls</span>
+                </button>
+                <button class="nav-item" data-section="settings">
+                    <i class="fas fa-cog"></i>
+                    <span>Settings</span>
                 </button>
             </div>
         </div>
@@ -753,6 +915,102 @@
                         <button class="btn" onclick="testThumbnailFunction()" style="margin-left: 10px; background: #dc3545;">
                             <i class="fas fa-bug"></i> Test Thumbnail
                         </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Settings Section -->
+        <section id="settings-section" class="section">
+            <div class="section-header">
+                <h2><i class="fas fa-cog"></i> Settings</h2>
+                <p class="section-description">Manage camera lookup table — names, locations, and coordinates</p>
+            </div>
+            <div class="settings-content">
+
+                <!-- Camera Lookup Table -->
+                <div class="settings-card">
+                    <div class="settings-card-header">
+                        <h3><i class="fas fa-video"></i> Camera Lookup</h3>
+                        <button class="btn btn-small" onclick="showAddCameraForm()">
+                            <i class="fas fa-plus"></i> Add Camera
+                        </button>
+                    </div>
+
+                    <!-- Add/Edit Form (hidden by default) -->
+                    <div id="cameraForm" class="camera-form" style="display:none;">
+                        <h4 id="cameraFormTitle">Add Camera</h4>
+                        <input type="hidden" id="editDeviceId">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label>Device ID *</label>
+                                <input type="text" id="formDeviceId" placeholder="e.g. AA:BB:CC:DD:EE:FF">
+                            </div>
+                            <div class="form-group">
+                                <label>Camera Name *</label>
+                                <input type="text" id="formCameraName" placeholder="e.g. Front Gate">
+                            </div>
+                            <div class="form-group">
+                                <label>Location</label>
+                                <input type="text" id="formCameraLocation" placeholder="e.g. Entrance on Oak Ave">
+                            </div>
+                            <div class="form-group">
+                                <label>Latitude</label>
+                                <input type="number" id="formLatitude" step="any" placeholder="37.4519">
+                            </div>
+                            <div class="form-group">
+                                <label>Longitude</label>
+                                <input type="number" id="formLongitude" step="any" placeholder="-122.1817">
+                            </div>
+                            <div class="form-group">
+                                <label>Model</label>
+                                <input type="text" id="formModel" placeholder="e.g. G4 Pro">
+                            </div>
+                            <div class="form-group">
+                                <label>Installation Date</label>
+                                <input type="date" id="formInstallDate">
+                            </div>
+                            <div class="form-group">
+                                <label>Active</label>
+                                <select id="formActive">
+                                    <option value="true">Yes</option>
+                                    <option value="false">No</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Notes</label>
+                                <input type="text" id="formNotes" placeholder="Optional notes">
+                            </div>
+                        </div>
+                        <div id="cameraFormError" class="form-error" style="display:none;"></div>
+                        <div class="form-actions">
+                            <button class="btn" onclick="submitCameraForm()">Save</button>
+                            <button class="btn btn-secondary" onclick="hideCameraForm()">Cancel</button>
+                        </div>
+                    </div>
+
+                    <!-- Table -->
+                    <div id="cameraTableWrap">
+                        <div id="cameraTableLoading" style="padding:20px; color:#718096;">
+                            <i class="fas fa-spinner fa-spin"></i> Loading cameras...
+                        </div>
+                        <table id="cameraTable" class="lookup-table" style="display:none;">
+                            <thead>
+                                <tr>
+                                    <th>Device ID</th>
+                                    <th>Detections</th>
+                                    <th>Name</th>
+                                    <th>Location</th>
+                                    <th>Lat / Lng</th>
+                                    <th>Model</th>
+                                    <th>Install Date</th>
+                                    <th>Active</th>
+                                    <th>Notes</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="cameraTableBody"></tbody>
+                        </table>
                     </div>
                 </div>
             </div>
@@ -1623,6 +1881,10 @@
                 // Hide the old stats panel for other views
                 document.getElementById('statsPanel').style.display = 'none';
             }
+
+            if (sectionName === 'settings') {
+                loadCameraLookup();
+            }
             
             // Load stats data when switching to stats section
             if (sectionName === 'stats') {
@@ -1700,6 +1962,169 @@
             });
         }
         
+        // ----------------------------------------------------------------
+        // Camera Lookup CRUD
+        // ----------------------------------------------------------------
+
+        let cameraLookupData = [];
+        let editingDeviceId = null;
+
+        async function loadCameraLookup() {
+            document.getElementById('cameraTableLoading').style.display = 'block';
+            document.getElementById('cameraTable').style.display = 'none';
+            try {
+                const resp = await fetch('/api/camera-lookup');
+                const data = await resp.json();
+                if (!data.success) throw new Error(data.error);
+                cameraLookupData = data.cameras;
+                renderCameraTable(cameraLookupData);
+            } catch (err) {
+                document.getElementById('cameraTableLoading').textContent = 'Error loading cameras: ' + err.message;
+            }
+        }
+
+        function renderCameraTable(cameras) {
+            const tbody = document.getElementById('cameraTableBody');
+            tbody.innerHTML = '';
+            cameras.forEach(cam => {
+                const tr = document.createElement('tr');
+                if (!cam.registered) {
+                    tr.style.background = '#fffbeb';  // amber tint for unregistered rows
+                }
+                const camJson = JSON.stringify(cam).replace(/"/g, '&quot;');
+                const latLng = cam.latitude != null ? `${cam.latitude.toFixed(5)} / ${cam.longitude != null ? cam.longitude.toFixed(5) : '—'}` : '—';
+                const detCount = cam.detection_count ? cam.detection_count.toLocaleString() : '—';
+
+                if (cam.registered) {
+                    tr.innerHTML = `
+                        <td style="font-family:monospace;font-size:12px;">${cam.device_id}</td>
+                        <td style="font-size:12px;color:#718096;">${detCount}</td>
+                        <td>${cam.camera_name || '—'}</td>
+                        <td>${cam.camera_location || '—'}</td>
+                        <td style="font-size:12px;">${latLng}</td>
+                        <td>${cam.camera_model || '—'}</td>
+                        <td>${cam.installation_date || '—'}</td>
+                        <td><span class="badge ${cam.is_active ? 'badge-green' : 'badge-gray'}">${cam.is_active ? 'Yes' : 'No'}</span></td>
+                        <td>${cam.notes || '—'}</td>
+                        <td>
+                            <button class="action-btn" onclick="showEditCameraForm(${camJson})"><i class="fas fa-edit"></i> Edit</button>
+                            <button class="action-btn delete" onclick="deleteCamera('${cam.device_id.replace(/'/g, "\\'")}')"><i class="fas fa-trash"></i> Delete</button>
+                        </td>`;
+                } else {
+                    tr.innerHTML = `
+                        <td style="font-family:monospace;font-size:12px;">${cam.device_id}</td>
+                        <td style="font-size:12px;color:#718096;">${detCount}</td>
+                        <td colspan="7" style="color:#a0aec0;font-style:italic;">Not registered</td>
+                        <td>
+                            <button class="action-btn" onclick="showAddCameraFormFor('${cam.device_id.replace(/'/g, "\\'")}')"><i class="fas fa-plus"></i> Add</button>
+                        </td>`;
+                }
+                tbody.appendChild(tr);
+            });
+            document.getElementById('cameraTableLoading').style.display = 'none';
+            document.getElementById('cameraTable').style.display = 'table';
+        }
+
+        function showAddCameraFormFor(deviceId) {
+            showAddCameraForm();
+            document.getElementById('formDeviceId').value = deviceId;
+        }
+
+        function showAddCameraForm() {
+            editingDeviceId = null;
+            document.getElementById('cameraFormTitle').textContent = 'Add Camera';
+            document.getElementById('editDeviceId').value = '';
+            document.getElementById('formDeviceId').value = '';
+            document.getElementById('formDeviceId').disabled = false;
+            document.getElementById('formCameraName').value = '';
+            document.getElementById('formCameraLocation').value = '';
+            document.getElementById('formLatitude').value = '';
+            document.getElementById('formLongitude').value = '';
+            document.getElementById('formModel').value = '';
+            document.getElementById('formInstallDate').value = '';
+            document.getElementById('formNotes').value = '';
+            document.getElementById('formActive').value = 'true';
+            document.getElementById('cameraFormError').style.display = 'none';
+            document.getElementById('cameraForm').style.display = 'block';
+            document.getElementById('formDeviceId').focus();
+        }
+
+        function showEditCameraForm(cam) {
+            editingDeviceId = cam.device_id;
+            document.getElementById('cameraFormTitle').textContent = 'Edit Camera';
+            document.getElementById('editDeviceId').value = cam.device_id;
+            document.getElementById('formDeviceId').value = cam.device_id;
+            document.getElementById('formDeviceId').disabled = true;
+            document.getElementById('formCameraName').value = cam.camera_name || '';
+            document.getElementById('formCameraLocation').value = cam.camera_location || '';
+            document.getElementById('formLatitude').value = cam.latitude != null ? cam.latitude : '';
+            document.getElementById('formLongitude').value = cam.longitude != null ? cam.longitude : '';
+            document.getElementById('formModel').value = cam.camera_model || '';
+            document.getElementById('formInstallDate').value = cam.installation_date || '';
+            document.getElementById('formNotes').value = cam.notes || '';
+            document.getElementById('formActive').value = cam.is_active ? 'true' : 'false';
+            document.getElementById('cameraFormError').style.display = 'none';
+            document.getElementById('cameraForm').style.display = 'block';
+            document.getElementById('formCameraName').focus();
+        }
+
+        function hideCameraForm() {
+            document.getElementById('cameraForm').style.display = 'none';
+            editingDeviceId = null;
+        }
+
+        async function submitCameraForm() {
+            const deviceId = editingDeviceId || document.getElementById('formDeviceId').value.trim();
+            if (!deviceId) {
+                showCameraFormError('Device ID is required');
+                return;
+            }
+            const payload = {
+                device_id: deviceId,
+                camera_name: document.getElementById('formCameraName').value.trim(),
+                camera_location: document.getElementById('formCameraLocation').value.trim(),
+                latitude: document.getElementById('formLatitude').value || null,
+                longitude: document.getElementById('formLongitude').value || null,
+                camera_model: document.getElementById('formModel').value.trim(),
+                installation_date: document.getElementById('formInstallDate').value || null,
+                notes: document.getElementById('formNotes').value.trim(),
+                is_active: document.getElementById('formActive').value === 'true',
+            };
+            try {
+                const url = editingDeviceId ? `/api/camera-lookup/${encodeURIComponent(editingDeviceId)}` : '/api/camera-lookup';
+                const method = editingDeviceId ? 'PUT' : 'POST';
+                const resp = await fetch(url, {
+                    method,
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload),
+                });
+                const data = await resp.json();
+                if (!data.success) throw new Error(data.error);
+                hideCameraForm();
+                loadCameraLookup();
+            } catch (err) {
+                showCameraFormError('Save failed: ' + err.message);
+            }
+        }
+
+        async function deleteCamera(deviceId) {
+            if (!confirm(`Delete camera ${deviceId}?`)) return;
+            try {
+                const resp = await fetch(`/api/camera-lookup/${encodeURIComponent(deviceId)}`, {method: 'DELETE'});
+                const data = await resp.json();
+                if (!data.success) throw new Error(data.error);
+                loadCameraLookup();
+            } catch (err) {
+                alert('Delete failed: ' + err.message);
+            }
+        }
+
+        function showCameraFormError(msg) {
+            const el = document.getElementById('cameraFormError');
+            el.textContent = msg;
+            el.style.display = 'block';
+        }
+
         // Initialize the application
         map.on('load', function() {
             initializeDates();
