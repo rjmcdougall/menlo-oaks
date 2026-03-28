@@ -527,10 +527,10 @@
 
         /* Unknown Activity overlay */
         .map-overlay-btn {
-            position: absolute;
-            top: 16px;
+            position: fixed;
+            top: 76px;
             right: 16px;
-            z-index: 100;
+            z-index: 9999;
             background: #2d3748;
             color: white;
             border: none;
@@ -556,10 +556,10 @@
         }
 
         .unknown-panel {
-            position: absolute;
-            top: 60px;
+            position: fixed;
+            top: 120px;
             right: 16px;
-            z-index: 100;
+            z-index: 9999;
             width: 300px;
             max-height: calc(100vh - 140px);
             background: #1a202c;
@@ -2042,6 +2042,13 @@
 
             if (sectionName === 'settings') {
                 loadCameraLookup();
+            }
+
+            // Only show the unknown activity button on the map
+            document.getElementById('unknownActivityToggle').style.display =
+                sectionName === 'map' ? 'flex' : 'none';
+            if (sectionName !== 'map') {
+                document.getElementById('unknownActivityPanel').style.display = 'none';
             }
             
             // Load stats data when switching to stats section
