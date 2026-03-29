@@ -2411,8 +2411,10 @@
                             </div>
                         `);
 
+                        // Jitter to prevent stacking when multiple plates share a camera
+                        const jitter = () => (Math.random() - 0.5) * 0.0006;
                         const marker = new mapboxgl.Marker({ element: el })
-                            .setLngLat([loc.longitude, loc.latitude])
+                            .setLngLat([loc.longitude + jitter(), loc.latitude + jitter()])
                             .setPopup(popup)
                             .addTo(map);
                         unknownMarkers.push(marker);
