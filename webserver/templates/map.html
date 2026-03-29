@@ -952,8 +952,15 @@
             <!-- Unknown Activity legend panel -->
             <div id="unknownActivityPanel" class="unknown-panel" style="display:none;">
                 <div class="unknown-panel-header">
-                    <span><i class="fas fa-car"></i> Unknown Vehicles — past 24h</span>
+                    <span><i class="fas fa-car"></i> Unknown Vehicles — <span id="unknownHoursLabel">past 24h</span></span>
                     <button onclick="toggleUnknownActivity()" style="background:none;border:none;color:#fff;cursor:pointer;font-size:16px;">×</button>
+                </div>
+                <div style="padding:8px 12px;background:#2d3748;border-bottom:1px solid #4a5568;display:flex;align-items:center;gap:10px;">
+                    <i class="fas fa-clock" style="color:#a0aec0;font-size:12px;"></i>
+                    <input type="range" id="unknownHoursSlider" min="1" max="168" value="24" step="1"
+                        style="flex:1;accent-color:#63b3ed;cursor:pointer;"
+                        oninput="onHoursSliderChange(this.value)">
+                    <span id="unknownHoursValue" style="color:#e2e8f0;font-size:12px;min-width:36px;text-align:right;">24h</span>
                 </div>
                 <div id="unknownActivityLoading" style="padding:12px;color:#a0aec0;font-size:13px;">
                     <i class="fas fa-spinner fa-spin"></i> Loading…
@@ -2334,7 +2341,20 @@
             unknownMarkers = [];
         }
 
+        let hoursSliderTimer = null;
+
+        function onHoursSliderChange(val) {
+            const h = parseInt(val);
+            const label = h < 24 ? `past ${h}h` : h === 24 ? 'past 24h' : h % 24 === 0 ? `past ${h/24}d` : `past ${h}h`;
+            document.getElementById('unknownHoursValue').textContent = `${h}h`;
+            document.getElementById('unknownHoursLabel').textContent = label;
+            // Debounce: reload 600ms after the user stops dragging
+            clearTimeout(hoursSliderTimer);
+            hoursSliderTimer = setTimeout(() => loadUnknownActivity(), 600);
+        }
+
         async function loadUnknownActivity() {
+            const hours = parseInt(document.getElementById('unknownHoursSlider')?.value || 24);
             document.getElementById('unknownActivityLoading').style.display = 'block';
             document.getElementById('unknownLegend').innerHTML = '';
             clearUnknownMarkers();
@@ -2343,15 +2363,16 @@
             paletteIndex = 0;
 
             try {
-                const resp = await fetch('/api/unknown-activity');
+                const resp = await fetch(`/api/unknown-activity?hours=${hours}`);
                 const data = await resp.json();
                 if (!data.success) throw new Error(data.error);
 
                 document.getElementById('unknownActivityLoading').style.display = 'none';
 
                 if (data.detections.length === 0) {
+                    const hoursLabel = document.getElementById('unknownHoursLabel').textContent;
                     document.getElementById('unknownLegend').innerHTML =
-                        '<div style="padding:16px;color:#a0aec0;font-size:13px;">No unknown vehicle activity in the past 24 hours.</div>';
+                        `<div style="padding:16px;color:#a0aec0;font-size:13px;">No unknown vehicle activity in the ${hoursLabel}.</div>`;
                     return;
                 }
 

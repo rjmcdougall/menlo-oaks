@@ -476,12 +476,17 @@ def api_plate_detections(plate_number):
 @app.route('/api/unknown-activity')
 def api_unknown_activity():
     """Return unknown plates that exceeded 10 detections in any 10-minute window
-    within the past 24 hours, grouped by plate + camera location.
+    within the past N hours (default 24), grouped by plate + camera location.
 
     'Unknown' means the plate has been seen on fewer than 20 distinct calendar days.
     Matches the same threshold used by the real-time Telegram alert logic.
     """
     try:
+        try:
+            hours = max(1, min(int(request.args.get('hours', 24)), 168))
+        except (ValueError, TypeError):
+            hours = 24
+
         query = f"""
         WITH unknown_plates AS (
             SELECT plate_number
@@ -502,7 +507,7 @@ def api_unknown_activity():
             FROM `{PROJECT_ID}.{DATASET_ID}.detections` d
             JOIN unknown_plates u ON d.plate_number = u.plate_number
             LEFT JOIN `{PROJECT_ID}.{DATASET_ID}.camera_lookup` c ON d.device_id = c.device_id
-            WHERE d.detection_timestamp >= DATETIME_SUB(CURRENT_DATETIME(), INTERVAL 24 HOUR)
+            WHERE d.detection_timestamp >= DATETIME_SUB(CURRENT_DATETIME(), INTERVAL {hours} HOUR)
               AND d.plate_number IS NOT NULL AND d.plate_number != ''
         ),
         windowed AS (
