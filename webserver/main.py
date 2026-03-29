@@ -483,7 +483,7 @@ def api_unknown_activity():
     """
     try:
         try:
-            hours = max(1, min(int(request.args.get('hours', 24)), 168))
+            hours = max(1, min(int(request.args.get('hours', 3)), 168))
         except (ValueError, TypeError):
             hours = 24
 

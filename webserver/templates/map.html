@@ -952,15 +952,15 @@
             <!-- Unknown Activity legend panel -->
             <div id="unknownActivityPanel" class="unknown-panel" style="display:none;">
                 <div class="unknown-panel-header">
-                    <span><i class="fas fa-car"></i> Unknown Vehicles — <span id="unknownHoursLabel">past 24h</span></span>
+                    <span><i class="fas fa-car"></i> Unknown Vehicles — <span id="unknownHoursLabel">past 3h</span></span>
                     <button onclick="toggleUnknownActivity()" style="background:none;border:none;color:#fff;cursor:pointer;font-size:16px;">×</button>
                 </div>
                 <div style="padding:8px 12px;background:#2d3748;border-bottom:1px solid #4a5568;display:flex;align-items:center;gap:10px;">
                     <i class="fas fa-clock" style="color:#a0aec0;font-size:12px;"></i>
-                    <input type="range" id="unknownHoursSlider" min="1" max="168" value="24" step="1"
+                    <input type="range" id="unknownHoursSlider" min="1" max="168" value="3" step="1"
                         style="flex:1;accent-color:#63b3ed;cursor:pointer;"
                         oninput="onHoursSliderChange(this.value)">
-                    <span id="unknownHoursValue" style="color:#e2e8f0;font-size:12px;min-width:36px;text-align:right;">24h</span>
+                    <span id="unknownHoursValue" style="color:#e2e8f0;font-size:12px;min-width:36px;text-align:right;">3h</span>
                 </div>
                 <div id="unknownActivityLoading" style="padding:12px;color:#a0aec0;font-size:13px;">
                     <i class="fas fa-spinner fa-spin"></i> Loading…
