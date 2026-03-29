@@ -892,15 +892,133 @@
                 max-width: 100%;
                 padding: 0 30px;
             }
-            
+
             .stats-content, .controls-content {
                 padding: 30px;
                 max-width: 900px;
             }
-            
+
             .stats-grid {
                 grid-template-columns: repeat(2, 1fr);
             }
+        }
+
+        /* Plates Section */
+        #plates-section {
+            background: #f8fafc;
+            overflow-y: auto;
+        }
+
+        .plates-content {
+            padding: 30px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .plates-search-bar {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .plates-search-bar input[type="text"] {
+            flex: 1;
+            padding: 10px 14px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 15px;
+            color: #2d3748;
+            background: white;
+            transition: border-color 0.2s;
+        }
+
+        .plates-search-bar input[type="text"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .plates-stats-bar {
+            display: flex;
+            gap: 20px;
+            padding: 10px 16px;
+            background: white;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+            font-size: 13px;
+            color: #4a5568;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .plates-stats-bar strong {
+            color: #2d3748;
+        }
+
+        .plates-table-wrap {
+            overflow-x: auto;
+        }
+
+        .plates-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        .plates-table th {
+            position: sticky;
+            top: 0;
+            background: #f8fafc;
+            text-align: left;
+            padding: 10px 12px;
+            color: #718096;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 2px solid #e2e8f0;
+            white-space: nowrap;
+            z-index: 1;
+        }
+
+        .plates-table td {
+            padding: 9px 12px;
+            border-bottom: 1px solid #f1f5f9;
+            color: #2d3748;
+            vertical-align: middle;
+        }
+
+        .plates-table tr:last-child td { border-bottom: none; }
+
+        .plates-table tr.row-stolen { background: #fff5f5; }
+        .plates-table tr.row-resident-known { background: #f0fff4; }
+        .plates-table tr.row-unknown { background: #fffaf0; }
+        .plates-table tr:hover td { filter: brightness(0.97); cursor: pointer; }
+
+        .badge-stolen  { background: #fed7d7; color: #c53030; }
+        .badge-resident { background: #bee3f8; color: #2b6cb0; }
+        .badge-known   { background: #c6f6d5; color: #276749; }
+        .badge-unknown { background: #feebc8; color: #c05621; }
+
+        .plate-badges {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+
+        .plates-table td.plate-num {
+            font-family: monospace;
+            font-weight: 700;
+            font-size: 14px;
+            letter-spacing: 1px;
+            color: #2d3748;
+        }
+
+        .plates-loading {
+            padding: 40px;
+            text-align: center;
+            color: #718096;
         }
     </style>
 </head>
@@ -928,6 +1046,10 @@
                 <button class="nav-item" data-section="settings">
                     <i class="fas fa-cog"></i>
                     <span>Settings</span>
+                </button>
+                <button class="nav-item" data-section="plates">
+                    <i class="fas fa-search"></i>
+                    <span>Plates</span>
                 </button>
             </div>
         </div>
@@ -1080,6 +1202,61 @@
                         <button class="btn" onclick="testThumbnailFunction()" style="margin-left: 10px; background: #dc3545;">
                             <i class="fas fa-bug"></i> Test Thumbnail
                         </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Plates Section -->
+        <section id="plates-section" class="section">
+            <div class="section-header">
+                <h2><i class="fas fa-search"></i> License Plate Search</h2>
+                <p class="section-description">Browse and search all detected plates with status, owner info, and activity counts</p>
+            </div>
+            <div class="plates-content">
+                <div class="settings-card">
+                    <div class="settings-card-header">
+                        <h3><i class="fas fa-car"></i> All Plates</h3>
+                    </div>
+                    <div style="padding: 20px 24px 0 24px;">
+                        <div class="plates-search-bar">
+                            <input type="text" id="plateListSearch" placeholder="Search plate number…"
+                                oninput="onPlateSearchInput(this.value)"
+                                autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false">
+                            <button class="btn" onclick="loadPlateList(document.getElementById('plateListSearch').value.trim())">
+                                <i class="fas fa-search"></i> Search
+                            </button>
+                            <button class="btn btn-secondary" onclick="document.getElementById('plateListSearch').value=''; loadPlateList('');">
+                                <i class="fas fa-times"></i> Clear
+                            </button>
+                        </div>
+                        <div class="plates-stats-bar" id="plateStatsBar" style="display:none;">
+                            <span><strong id="plateCountLabel">0</strong> plates</span>
+                            <span>&#x1F6A8; Stolen: <strong id="plateStolenCount">0</strong></span>
+                            <span>&#x1F464; Residents: <strong id="plateResidentCount">0</strong></span>
+                            <span>&#x2753; Unknown: <strong id="plateUnknownCount">0</strong></span>
+                        </div>
+                    </div>
+                    <div id="plateTableWrap" class="plates-table-wrap" style="padding: 0 24px 24px 24px;">
+                        <div id="plateTableLoading" class="plates-loading" style="display:none;">
+                            <i class="fas fa-spinner fa-spin"></i> Loading plates…
+                        </div>
+                        <table id="plateTable" class="plates-table" style="display:none;">
+                            <thead>
+                                <tr>
+                                    <th>Plate</th>
+                                    <th>Status</th>
+                                    <th>Owner</th>
+                                    <th>Last Seen</th>
+                                    <th>Camera</th>
+                                    <th>All Time</th>
+                                    <th>24h</th>
+                                    <th>1h</th>
+                                    <th>Days Seen</th>
+                                </tr>
+                            </thead>
+                            <tbody id="plateTableBody"></tbody>
+                        </table>
                     </div>
                 </div>
             </div>
@@ -2051,6 +2228,10 @@
                 loadCameraLookup();
             }
 
+            if (sectionName === 'plates') {
+                loadPlateList(document.getElementById('plateListSearch').value.trim());
+            }
+
             // Only show the unknown activity button on the map
             document.getElementById('unknownActivityToggle').style.display =
                 sectionName === 'map' ? 'flex' : 'none';
@@ -2463,6 +2644,129 @@
             } catch (err) {
                 document.getElementById('unknownActivityLoading').textContent = 'Error: ' + err.message;
             }
+        }
+
+        // ----------------------------------------------------------------
+        // Plates Tab
+        // ----------------------------------------------------------------
+
+        let plateSearchTimer = null;
+        let plateListData = [];
+
+        function onPlateSearchInput(val) {
+            clearTimeout(plateSearchTimer);
+            plateSearchTimer = setTimeout(() => loadPlateList(val.trim()), 300);
+        }
+
+        async function loadPlateList(q = '') {
+            const loading = document.getElementById('plateTableLoading');
+            const table = document.getElementById('plateTable');
+            const statsBar = document.getElementById('plateStatsBar');
+
+            loading.style.display = 'block';
+            table.style.display = 'none';
+            statsBar.style.display = 'none';
+
+            try {
+                const params = new URLSearchParams({ limit: 500 });
+                if (q) params.set('q', q.toUpperCase());
+                const resp = await fetch(`/api/plate-list?${params}`);
+                const data = await resp.json();
+                if (!data.success) throw new Error(data.error);
+
+                plateListData = data.plates;
+                renderPlateTable(plateListData);
+
+                // Update stats bar
+                const stolen = plateListData.filter(p => p.is_stolen).length;
+                const residents = plateListData.filter(p => p.owner_name).length;
+                const unknown = plateListData.filter(p => !p.is_known).length;
+                document.getElementById('plateCountLabel').textContent = plateListData.length.toLocaleString();
+                document.getElementById('plateStolenCount').textContent = stolen;
+                document.getElementById('plateResidentCount').textContent = residents;
+                document.getElementById('plateUnknownCount').textContent = unknown;
+                statsBar.style.display = 'flex';
+
+            } catch (err) {
+                loading.textContent = 'Error loading plates: ' + err.message;
+                loading.style.display = 'block';
+            }
+        }
+
+        function renderPlateTable(plates) {
+            const loading = document.getElementById('plateTableLoading');
+            const table = document.getElementById('plateTable');
+            const tbody = document.getElementById('plateTableBody');
+
+            tbody.innerHTML = '';
+
+            if (plates.length === 0) {
+                loading.innerHTML = '<i class="fas fa-info-circle"></i> No plates found.';
+                loading.style.display = 'block';
+                table.style.display = 'none';
+                return;
+            }
+
+            plates.forEach(p => {
+                const tr = document.createElement('tr');
+
+                // Row color class
+                if (p.is_stolen) {
+                    tr.className = 'row-stolen';
+                } else if (p.owner_name && p.is_known) {
+                    tr.className = 'row-resident-known';
+                } else if (!p.is_known) {
+                    tr.className = 'row-unknown';
+                }
+
+                // Status badges
+                const badges = [];
+                if (p.is_stolen) {
+                    badges.push(`<span class="badge badge-stolen">&#x1F6A8; STOLEN</span>`);
+                }
+                if (p.owner_name) {
+                    badges.push(`<span class="badge badge-resident">&#x1F464; ${escHtml(p.owner_name)}</span>`);
+                }
+                if (p.is_known) {
+                    badges.push(`<span class="badge badge-known">KNOWN</span>`);
+                } else {
+                    badges.push(`<span class="badge badge-unknown">UNKNOWN</span>`);
+                }
+
+                const lastSeenFmt = formatToPacificTime(p.last_seen);
+                const cameraDisplay = p.last_camera_location
+                    ? escHtml(p.last_camera_location)
+                    : (p.last_camera_name ? escHtml(p.last_camera_name) : '—');
+
+                tr.innerHTML = `
+                    <td class="plate-num">${escHtml(p.plate_number)}</td>
+                    <td><div class="plate-badges">${badges.join('')}</div></td>
+                    <td style="font-size:12px;color:#4a5568;">${p.owner_address ? escHtml(p.owner_address) : '—'}</td>
+                    <td style="font-size:12px;white-space:nowrap;">${lastSeenFmt}</td>
+                    <td style="font-size:12px;">${cameraDisplay}</td>
+                    <td style="text-align:right;">${p.total_detections.toLocaleString()}</td>
+                    <td style="text-align:right;">${p.detections_24h || 0}</td>
+                    <td style="text-align:right;">${p.detections_1h || 0}</td>
+                    <td style="text-align:right;">${p.days_seen}</td>
+                `;
+
+                // Clicking a row flies to Map tab and searches for that plate
+                tr.addEventListener('click', () => {
+                    document.getElementById('plateSearch').value = p.plate_number;
+                    showSection('map');
+                    selectPlate(p.plate_number);
+                });
+
+                tbody.appendChild(tr);
+            });
+
+            loading.style.display = 'none';
+            table.style.display = 'table';
+        }
+
+        function escHtml(str) {
+            if (!str) return '';
+            return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
         }
 
         // Initialize the application

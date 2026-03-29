@@ -701,6 +701,127 @@ def api_camera_lookup_delete(device_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/plate-list')
+def api_plate_list():
+    """Aggregate all plates with stats, stolen status, and resident info."""
+    try:
+        q = request.args.get('q', '').strip().upper()
+        try:
+            limit = max(1, min(int(request.args.get('limit', 500)), 2000))
+        except (ValueError, TypeError):
+            limit = 500
+
+        search_filter = "AND UPPER(d.plate_number) LIKE @search_q" if q else ""
+        search_param = [bigquery.ScalarQueryParameter('search_q', 'STRING', f'%{q}%')] if q else []
+
+        def build_query(include_residents):
+            resident_cte = ""
+            resident_join = ""
+            resident_cols = "NULL AS owner_name, NULL AS owner_address"
+            if include_residents:
+                resident_cte = f"""
+                ,resident_plates_unpivoted AS (
+                    SELECT UPPER(lp) AS plate_number, CONCAT(first, ' ', last) AS owner_name, address AS owner_address
+                    FROM `{PROJECT_ID}.{DATASET_ID}.resident_plates`
+                    CROSS JOIN UNNEST([lp1, lp2, lp3, lp4]) AS lp
+                    WHERE lp IS NOT NULL AND lp != ''
+                    QUALIFY ROW_NUMBER() OVER (PARTITION BY UPPER(lp)) = 1
+                )"""
+                resident_join = f"LEFT JOIN resident_plates_unpivoted rp ON UPPER(agg.plate_number) = rp.plate_number"
+                resident_cols = "rp.owner_name, rp.owner_address"
+
+            return f"""
+            WITH plate_agg AS (
+                SELECT
+                    d.plate_number,
+                    COUNT(*) AS total_detections,
+                    COUNT(DISTINCT DATE(d.detection_timestamp)) AS days_seen,
+                    MAX(d.detection_timestamp) AS last_seen,
+                    MIN(d.detection_timestamp) AS first_seen,
+                    COUNTIF(d.detection_timestamp >= DATETIME_SUB(CURRENT_DATETIME(), INTERVAL 24 HOUR)) AS detections_24h,
+                    COUNTIF(d.detection_timestamp >= DATETIME_SUB(CURRENT_DATETIME(), INTERVAL 1 HOUR)) AS detections_1h,
+                    ARRAY_AGG(d.device_id ORDER BY d.detection_timestamp DESC LIMIT 1)[OFFSET(0)] AS last_device_id
+                FROM `{PROJECT_ID}.{DATASET_ID}.detections` d
+                WHERE d.plate_number IS NOT NULL AND d.plate_number != ''
+                {search_filter}
+                GROUP BY d.plate_number
+            ),
+            agg AS (
+                SELECT
+                    pa.plate_number,
+                    pa.total_detections,
+                    pa.days_seen,
+                    pa.last_seen,
+                    pa.first_seen,
+                    pa.detections_24h,
+                    pa.detections_1h,
+                    pa.last_device_id,
+                    (pa.days_seen >= 20) AS is_known,
+                    COALESCE(cl.camera_name, pa.last_device_id) AS last_camera_name,
+                    COALESCE(cl.camera_location, '') AS last_camera_location,
+                    (sp.plate_number IS NOT NULL) AS is_stolen
+                FROM plate_agg pa
+                LEFT JOIN `{PROJECT_ID}.{DATASET_ID}.camera_lookup` cl ON pa.last_device_id = cl.device_id
+                LEFT JOIN `{PROJECT_ID}.{DATASET_ID}.stolenplates` sp ON UPPER(pa.plate_number) = UPPER(sp.plate_number)
+            ){resident_cte}
+            SELECT
+                agg.plate_number,
+                agg.total_detections,
+                agg.days_seen,
+                agg.is_known,
+                agg.last_seen,
+                agg.first_seen,
+                agg.detections_24h,
+                agg.detections_1h,
+                agg.last_camera_name,
+                agg.last_camera_location,
+                agg.is_stolen,
+                {resident_cols}
+            FROM agg
+            {resident_join}
+            ORDER BY agg.last_seen DESC
+            LIMIT {limit}
+            """
+
+        # Try with resident join first; fall back without it if Drive/sheet access fails
+        try:
+            query = build_query(include_residents=True)
+            job_config = bigquery.QueryJobConfig(query_parameters=search_param)
+            results = client.query(query, job_config=job_config).result()
+        except Exception as resident_err:
+            err_str = str(resident_err).lower()
+            if 'drive' in err_str or 'sheet' in err_str or 'resident' in err_str or 'permission' in err_str or 'access' in err_str:
+                print(f"Resident plates join failed ({resident_err}), falling back without residents")
+                query = build_query(include_residents=False)
+                job_config = bigquery.QueryJobConfig(query_parameters=search_param)
+                results = client.query(query, job_config=job_config).result()
+            else:
+                raise
+
+        plates = []
+        for row in results:
+            plates.append({
+                'plate_number': row.plate_number,
+                'total_detections': row.total_detections,
+                'days_seen': row.days_seen,
+                'is_known': row.is_known,
+                'last_seen': format_timestamp_as_utc(row.last_seen),
+                'first_seen': format_timestamp_as_utc(row.first_seen),
+                'detections_24h': row.detections_24h,
+                'detections_1h': row.detections_1h,
+                'last_camera_name': row.last_camera_name or '',
+                'last_camera_location': row.last_camera_location or '',
+                'is_stolen': bool(row.is_stolen),
+                'owner_name': row.owner_name if row.owner_name else None,
+                'owner_address': row.owner_address if row.owner_address else None,
+            })
+
+        return jsonify({'success': True, 'plates': plates, 'count': len(plates)})
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/static/<path:filename>')
 def serve_static(filename):
     """Serve static files."""
