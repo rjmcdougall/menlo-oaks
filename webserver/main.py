@@ -822,6 +822,102 @@ def api_plate_list():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/plate-detections')
+def api_plate_detections_search():
+    """Individual detection rows for a plate search query, reverse chronological."""
+    q = request.args.get('q', '').strip().upper()
+    if not q:
+        return jsonify({'success': True, 'detections': [], 'count': 0})
+    try:
+        try:
+            limit = max(1, min(int(request.args.get('limit', 500)), 2000))
+        except (ValueError, TypeError):
+            limit = 500
+
+        def build_query(include_residents):
+            resident_cte = ""
+            resident_join = ""
+            resident_cols = "NULL AS owner_name, NULL AS owner_address"
+            if include_residents:
+                resident_cte = f"""
+                ,resident_lookup AS (
+                    SELECT UPPER(TRIM(lp)) AS plate_number,
+                           TRIM(CONCAT(COALESCE(first,''), ' ', COALESCE(last,''))) AS owner_name,
+                           address AS owner_address
+                    FROM `{PROJECT_ID}.{DATASET_ID}.resident_plates`
+                    CROSS JOIN UNNEST([lp1, lp2, lp3, lp4]) AS lp
+                    WHERE lp IS NOT NULL AND lp != ''
+                    QUALIFY ROW_NUMBER() OVER (PARTITION BY UPPER(TRIM(lp))) = 1
+                )"""
+                resident_join = "LEFT JOIN resident_lookup rp ON UPPER(d.plate_number) = rp.plate_number"
+                resident_cols = "rp.owner_name, rp.owner_address"
+            return f"""
+            WITH plate_known AS (
+                SELECT plate_number,
+                       (COUNT(DISTINCT DATE(detection_timestamp)) >= 20) AS is_known
+                FROM `{PROJECT_ID}.{DATASET_ID}.detections`
+                WHERE plate_number IS NOT NULL AND plate_number != ''
+                  AND UPPER(plate_number) LIKE @search_q
+                GROUP BY plate_number
+            ){resident_cte}
+            SELECT
+                d.record_id,
+                d.plate_number,
+                d.detection_timestamp,
+                d.confidence,
+                d.vehicle_type,
+                d.vehicle_color,
+                d.thumbnail_public_url,
+                COALESCE(c.camera_name, d.device_id)  AS camera_name,
+                COALESCE(c.camera_location, '')        AS camera_location,
+                (sp.plate_number IS NOT NULL)          AS is_stolen,
+                COALESCE(pk.is_known, FALSE)           AS is_known,
+                {resident_cols}
+            FROM `{PROJECT_ID}.{DATASET_ID}.detections` d
+            LEFT JOIN `{PROJECT_ID}.{DATASET_ID}.camera_lookup` c  ON d.device_id = c.device_id
+            LEFT JOIN `{PROJECT_ID}.{DATASET_ID}.stolenplates` sp  ON UPPER(d.plate_number) = UPPER(sp.plate_number)
+            LEFT JOIN plate_known pk                               ON d.plate_number = pk.plate_number
+            {resident_join}
+            WHERE d.plate_number IS NOT NULL AND d.plate_number != ''
+              AND UPPER(d.plate_number) LIKE @search_q
+            ORDER BY d.detection_timestamp DESC
+            LIMIT {limit}
+            """
+
+        search_param = [bigquery.ScalarQueryParameter('search_q', 'STRING', f'%{q}%')]
+        try:
+            rows = client.query(build_query(True), bigquery.QueryJobConfig(query_parameters=search_param)).result()
+        except Exception as resident_err:
+            err = str(resident_err).lower()
+            if any(k in err for k in ('drive', 'sheet', 'resident', 'permission', 'access')):
+                rows = client.query(build_query(False), bigquery.QueryJobConfig(query_parameters=search_param)).result()
+            else:
+                raise
+
+        detections = []
+        for row in rows:
+            detections.append({
+                'record_id':           row.record_id,
+                'plate_number':        row.plate_number,
+                'detection_timestamp': format_timestamp_as_utc(row.detection_timestamp),
+                'confidence':          round(float(row.confidence or 0) * 100),
+                'vehicle_type':        row.vehicle_type or '',
+                'vehicle_color':       row.vehicle_color or '',
+                'thumbnail_public_url': row.thumbnail_public_url or '',
+                'camera_name':         row.camera_name or '',
+                'camera_location':     row.camera_location or '',
+                'is_stolen':           bool(row.is_stolen),
+                'is_known':            bool(row.is_known),
+                'owner_name':          row.owner_name or None,
+                'owner_address':       row.owner_address or None,
+            })
+
+        return jsonify({'success': True, 'detections': detections, 'count': len(detections)})
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/static/<path:filename>')
 def serve_static(filename):
     """Serve static files."""

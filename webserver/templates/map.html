@@ -1242,7 +1242,7 @@
                             <i class="fas fa-spinner fa-spin"></i> Loading plates…
                         </div>
                         <table id="plateTable" class="plates-table" style="display:none;">
-                            <thead>
+                            <thead id="plateTableHead">
                                 <tr>
                                     <th>Plate</th>
                                     <th>Status</th>
@@ -2663,40 +2663,123 @@
             const table = document.getElementById('plateTable');
             const statsBar = document.getElementById('plateStatsBar');
 
+            loading.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading…';
             loading.style.display = 'block';
             table.style.display = 'none';
             statsBar.style.display = 'none';
 
             try {
-                const params = new URLSearchParams({ limit: 500 });
-                if (q) params.set('q', q.toUpperCase());
-                const resp = await fetch(`/api/plate-list?${params}`);
-                const data = await resp.json();
-                if (!data.success) throw new Error(data.error);
-
-                plateListData = data.plates;
-                renderPlateTable(plateListData);
-
-                // Update stats bar
-                const stolen = plateListData.filter(p => p.is_stolen).length;
-                const residents = plateListData.filter(p => p.owner_name).length;
-                const unknown = plateListData.filter(p => !p.is_known).length;
-                document.getElementById('plateCountLabel').textContent = plateListData.length.toLocaleString();
-                document.getElementById('plateStolenCount').textContent = stolen;
-                document.getElementById('plateResidentCount').textContent = residents;
-                document.getElementById('plateUnknownCount').textContent = unknown;
-                statsBar.style.display = 'flex';
-
+                if (q) {
+                    // Search mode: show every individual hit in reverse time order
+                    const params = new URLSearchParams({ q: q.toUpperCase(), limit: 500 });
+                    const resp = await fetch(`/api/plate-detections?${params}`);
+                    const data = await resp.json();
+                    if (!data.success) throw new Error(data.error);
+                    renderHitsTable(data.detections);
+                    const stolen = data.detections.filter(d => d.is_stolen).length;
+                    const residents = data.detections.filter(d => d.owner_name).length;
+                    const unknown = data.detections.filter(d => !d.is_known).length;
+                    document.getElementById('plateCountLabel').textContent = data.count.toLocaleString() + ' hits';
+                    document.getElementById('plateStolenCount').textContent = stolen;
+                    document.getElementById('plateResidentCount').textContent = residents;
+                    document.getElementById('plateUnknownCount').textContent = unknown;
+                    statsBar.style.display = 'flex';
+                } else {
+                    // Summary mode: one row per plate
+                    const params = new URLSearchParams({ limit: 500 });
+                    const resp = await fetch(`/api/plate-list?${params}`);
+                    const data = await resp.json();
+                    if (!data.success) throw new Error(data.error);
+                    plateListData = data.plates;
+                    renderPlateTable(plateListData);
+                    const stolen = plateListData.filter(p => p.is_stolen).length;
+                    const residents = plateListData.filter(p => p.owner_name).length;
+                    const unknown = plateListData.filter(p => !p.is_known).length;
+                    document.getElementById('plateCountLabel').textContent = plateListData.length.toLocaleString();
+                    document.getElementById('plateStolenCount').textContent = stolen;
+                    document.getElementById('plateResidentCount').textContent = residents;
+                    document.getElementById('plateUnknownCount').textContent = unknown;
+                    statsBar.style.display = 'flex';
+                }
             } catch (err) {
                 loading.textContent = 'Error loading plates: ' + err.message;
                 loading.style.display = 'block';
             }
         }
 
+        function renderHitsTable(detections) {
+            const loading = document.getElementById('plateTableLoading');
+            const table = document.getElementById('plateTable');
+            const tbody = document.getElementById('plateTableBody');
+            const thead = document.getElementById('plateTableHead');
+
+            // Switch to hits columns
+            thead.innerHTML = `<tr>
+                <th>Plate</th>
+                <th>Status</th>
+                <th>Owner</th>
+                <th>Date / Time</th>
+                <th>Camera</th>
+                <th>Vehicle</th>
+                <th>Conf %</th>
+                <th>Thumb</th>
+            </tr>`;
+
+            tbody.innerHTML = '';
+            if (detections.length === 0) {
+                loading.innerHTML = '<i class="fas fa-info-circle"></i> No detections found.';
+                loading.style.display = 'block';
+                table.style.display = 'none';
+                return;
+            }
+
+            detections.forEach(d => {
+                const tr = document.createElement('tr');
+                if (d.is_stolen) tr.className = 'row-stolen';
+                else if (d.owner_name && d.is_known) tr.className = 'row-resident-known';
+                else if (!d.is_known) tr.className = 'row-unknown';
+
+                const badges = [];
+                if (d.is_stolen) badges.push(`<span class="badge badge-stolen">&#x1F6A8; STOLEN</span>`);
+                if (d.owner_name) badges.push(`<span class="badge badge-resident">&#x1F464; ${escHtml(d.owner_name)}</span>`);
+                if (d.is_known) badges.push(`<span class="badge badge-known">KNOWN</span>`);
+                else badges.push(`<span class="badge badge-unknown">UNKNOWN</span>`);
+
+                const cam = d.camera_location || d.camera_name || '—';
+                const vehicle = [d.vehicle_color, d.vehicle_type].filter(Boolean).join(' ') || '—';
+                const thumb = d.thumbnail_public_url
+                    ? `<a href="${escHtml(d.thumbnail_public_url)}" target="_blank" style="color:#3182ce;">📷</a>`
+                    : '—';
+
+                tr.innerHTML = `
+                    <td class="plate-num">${escHtml(d.plate_number)}</td>
+                    <td><div class="plate-badges">${badges.join('')}</div></td>
+                    <td style="font-size:12px;color:#4a5568;">${d.owner_address ? escHtml(d.owner_address) : '—'}</td>
+                    <td style="font-size:12px;white-space:nowrap;">${formatToPacificTime(d.detection_timestamp)}</td>
+                    <td style="font-size:12px;">${escHtml(cam)}</td>
+                    <td style="font-size:12px;">${escHtml(vehicle)}</td>
+                    <td style="text-align:right;font-size:12px;">${d.confidence}%</td>
+                    <td style="text-align:center;">${thumb}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            loading.style.display = 'none';
+            table.style.display = 'table';
+        }
+
         function renderPlateTable(plates) {
             const loading = document.getElementById('plateTableLoading');
             const table = document.getElementById('plateTable');
             const tbody = document.getElementById('plateTableBody');
+            const thead = document.getElementById('plateTableHead');
+
+            // Restore summary columns
+            thead.innerHTML = `<tr>
+                <th>Plate</th><th>Status</th><th>Owner</th>
+                <th>Last Seen</th><th>Camera</th>
+                <th>All Time</th><th>24h</th><th>1h</th><th>Days Seen</th>
+            </tr>`;
 
             tbody.innerHTML = '';
 
