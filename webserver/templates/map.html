@@ -665,6 +665,29 @@
             100% { box-shadow: 0 0 0 2px rgba(229,62,62,0.6), 0 2px 8px rgba(0,0,0,0.4); }
         }
 
+        /* Person marker on map */
+        .person-marker {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #3182ce;
+            box-shadow: 0 0 0 3px rgba(49,130,206,0.5), 0 2px 8px rgba(0,0,0,0.4);
+            cursor: pointer;
+            font-size: 16px;
+            border: 2px solid rgba(255,255,255,0.9);
+            transition: transform 0.15s;
+            animation: person-pulse 2s infinite;
+        }
+        .person-marker:hover { transform: scale(1.2); }
+        @keyframes person-pulse {
+            0%   { box-shadow: 0 0 0 2px rgba(49,130,206,0.7), 0 2px 8px rgba(0,0,0,0.4); }
+            50%  { box-shadow: 0 0 0 8px rgba(49,130,206,0.15), 0 2px 8px rgba(0,0,0,0.4); }
+            100% { box-shadow: 0 0 0 2px rgba(49,130,206,0.7), 0 2px 8px rgba(0,0,0,0.4); }
+        }
+
         /* Settings Section */
         #settings-section {
             background: #f8fafc;
@@ -825,6 +848,11 @@
 
         /* Mobile responsiveness */
         @media (max-width: 768px) {
+            #unknownActivityLoading,
+            #unknownLegend {
+                display: none !important;
+            }
+
             .nav-container {
                 padding: 0 15px;
             }
@@ -1065,16 +1093,24 @@
                 <i class="fas fa-spinner fa-spin"></i> Loading detections...
             </div>
 
+            <!-- Auto-refresh countdown badge -->
+            <span id="autoRefreshBadge" style="position:absolute;top:12px;right:12px;background:rgba(0,0,0,0.55);color:#a0aec0;font-size:11px;padding:3px 8px;border-radius:10px;pointer-events:none;z-index:10;">↻ 120s</span>
+
             <!-- Unknown Activity toggle button -->
             <button id="unknownActivityToggle" class="map-overlay-btn" onclick="toggleUnknownActivity()" title="Show unknown vehicle activity">
-                <i class="fas fa-car"></i> Unknown Activity
+                <i class="fas fa-car"></i> Suspicious Vehicles
                 <span id="unknownActivityCount" class="overlay-count" style="display:none;"></span>
             </button>
+
+            <!-- Person detection count badge (always visible when there are active detections) -->
+            <div id="personDetectionBadge" style="display:none;position:absolute;top:52px;left:12px;background:#3182ce;color:#fff;font-size:12px;font-weight:600;padding:4px 10px;border-radius:10px;z-index:10;pointer-events:none;">
+                🚶 <span id="personDetectionCount">0</span> person<span id="personDetectionPlural">s</span> detected
+            </div>
 
             <!-- Unknown Activity legend panel -->
             <div id="unknownActivityPanel" class="unknown-panel" style="display:none;">
                 <div class="unknown-panel-header">
-                    <span><i class="fas fa-car"></i> Unknown Vehicles — <span id="unknownHoursLabel">past 3h</span></span>
+                    <span><i class="fas fa-car"></i> Suspicious Vehicles — <span id="unknownHoursLabel">past 3h</span></span>
                     <button onclick="toggleUnknownActivity()" style="background:none;border:none;color:#fff;cursor:pointer;font-size:16px;">×</button>
                 </div>
                 <div style="padding:8px 12px;background:#2d3748;border-bottom:1px solid #4a5568;display:flex;align-items:center;gap:10px;">
@@ -1391,6 +1427,9 @@
         let markers = [];
         let currentSearchedPlate = null;
         let plateSearchTimeout = null;
+        let autoRefreshCountdown = 120;
+        let autoRefreshTimer = null;
+        let countdownTimer = null;
         
         // Pacific timezone formatting functions
         function formatToPacificTime(dateString) {
@@ -1479,7 +1518,7 @@
                 const cameraLocation = document.getElementById('cameraLocation').value;
                 const limit = document.getElementById('maxResults').value;
                 const unknownOnly = document.getElementById('unknownVehicles').checked;
-                
+
                 // Build query parameters
                 const params = new URLSearchParams();
                 if (startDate) params.append('start_date', startDate);
@@ -1487,6 +1526,7 @@
                 if (cameraLocation) params.append('camera_location', cameraLocation);
                 params.append('limit', limit);
                 if (unknownOnly) params.append('unknown_only', 'true');
+                if (currentSearchedPlate) params.append('plate_number', currentSearchedPlate);
                 
                 // Fetch data
                 const response = await fetch(`/api/detections?${params}`);
@@ -1718,9 +1758,7 @@
             document.getElementById('plateSearch').value = plateNumber;
             hideSearchResults();
             currentSearchedPlate = plateNumber;
-            
-            // Load plate locations and show on map
-            await loadPlateLocations(plateNumber);
+            await loadDetections();
         }
         
         async function loadPlateLocations(plateNumber) {
@@ -2072,8 +2110,13 @@
             
             plateSearchInput.addEventListener('input', (e) => {
                 clearTimeout(plateSearchTimeout);
+                const val = e.target.value.trim().toUpperCase();
+                if (!val && currentSearchedPlate) {
+                    currentSearchedPlate = null;
+                    loadDetections();
+                }
                 plateSearchTimeout = setTimeout(() => {
-                    searchPlates(e.target.value.trim().toUpperCase());
+                    searchPlates(val);
                 }, 300);
             });
             
@@ -2484,6 +2527,7 @@
 
         let unknownMarkers = [];
         let unknownActivityVisible = false;
+        let personMarkers = [];
 
         // Distinct palette — enough for ~15 plates before cycling
         const PLATE_PALETTE = [
@@ -2522,6 +2566,67 @@
             unknownMarkers = [];
         }
 
+        function clearPersonMarkers() {
+            personMarkers.forEach(m => m.remove());
+            personMarkers = [];
+        }
+
+        async function loadPersonDetections() {
+            clearPersonMarkers();
+            try {
+                const resp = await fetch('/api/person-detections');
+                const data = await resp.json();
+                if (!data.success) return;
+
+                const badge = document.getElementById('personDetectionBadge');
+                const countEl = document.getElementById('personDetectionCount');
+                const pluralEl = document.getElementById('personDetectionPlural');
+
+                if (data.detections.length === 0) {
+                    badge.style.display = 'none';
+                    return;
+                }
+
+                countEl.textContent = data.detections.length;
+                pluralEl.textContent = data.detections.length === 1 ? '' : 's';
+                badge.style.display = 'block';
+
+                data.detections.forEach(d => {
+                    const el = document.createElement('div');
+                    el.className = 'person-marker';
+                    el.innerHTML = '🚶';
+                    el.title = `Person detected at ${d.camera_location}\n${formatToPacificTime(d.detection_timestamp)}`;
+
+                    const thumbHtml = d.thumbnail_url
+                        ? `<div style="margin-top:8px;"><img src="${escHtml(d.thumbnail_url)}" style="max-width:200px;border-radius:4px;" onerror="this.style.display='none'"/></div>`
+                        : '';
+
+                    const popup = new mapboxgl.Popup({ offset: 20 }).setHTML(`
+                        <div style="font-family:-apple-system,sans-serif;min-width:180px;">
+                            <div style="font-weight:700;font-size:14px;margin-bottom:6px;color:#3182ce;">
+                                🚶 Person Detected
+                            </div>
+                            <div style="font-size:12px;color:#4a5568;">
+                                <div><b>Camera:</b> ${escHtml(d.camera_name)}</div>
+                                <div><b>Location:</b> ${escHtml(d.camera_location)}</div>
+                                <div><b>Time:</b> ${formatToPacificTime(d.detection_timestamp)}</div>
+                            </div>
+                            ${thumbHtml}
+                        </div>
+                    `);
+
+                    const jitter = () => (Math.random() - 0.5) * 0.0003;
+                    const marker = new mapboxgl.Marker({ element: el })
+                        .setLngLat([d.longitude + jitter(), d.latitude + jitter()])
+                        .setPopup(popup)
+                        .addTo(map);
+                    personMarkers.push(marker);
+                });
+            } catch (err) {
+                console.error('Error loading person detections:', err);
+            }
+        }
+
         let hoursSliderTimer = null;
 
         function onHoursSliderChange(val) {
@@ -2539,7 +2644,6 @@
             document.getElementById('unknownActivityLoading').style.display = 'block';
             document.getElementById('unknownLegend').innerHTML = '';
             clearUnknownMarkers();
-            // reset color assignments so colors are stable per load
             Object.keys(plateColorMap).forEach(k => delete plateColorMap[k]);
             paletteIndex = 0;
 
@@ -2557,24 +2661,19 @@
                     return;
                 }
 
-                // Group by plate
                 const byPlate = {};
                 data.detections.forEach(d => {
                     if (!byPlate[d.plate_number]) byPlate[d.plate_number] = [];
                     byPlate[d.plate_number].push(d);
                 });
 
-                // Sort plates: recent first, then by peak window count
                 const sortedPlates = Object.keys(byPlate).sort((a, b) => {
                     const aRecent = byPlate[a].some(d => d.is_recent);
                     const bRecent = byPlate[b].some(d => d.is_recent);
                     if (aRecent !== bRecent) return bRecent - aRecent;
-                    const aPeak = Math.max(...byPlate[a].map(d => d.peak_in_window));
-                    const bPeak = Math.max(...byPlate[b].map(d => d.peak_in_window));
-                    return bPeak - aPeak;
+                    return Math.max(...byPlate[b].map(d => d.peak_in_window)) - Math.max(...byPlate[a].map(d => d.peak_in_window));
                 });
 
-                // Update toggle count badge
                 const recentCount = sortedPlates.filter(p => byPlate[p].some(d => d.is_recent)).length;
                 const countEl = document.getElementById('unknownActivityCount');
                 countEl.textContent = recentCount > 0 ? `${recentCount} live` : sortedPlates.length;
@@ -2589,13 +2688,12 @@
                     const peak = Math.max(...locs.map(d => d.peak_in_window));
                     const lastSeen = locs.reduce((a, b) => a.last_seen > b.last_seen ? a : b).last_seen;
 
-                    // Add map markers for each camera location this plate was seen at
                     locs.forEach(loc => {
                         const el = document.createElement('div');
                         el.className = `car-marker${loc.is_recent ? ' recent' : ''}`;
                         el.style.background = color;
                         el.innerHTML = '🚗';
-                        el.title = `${plate} — ${loc.camera_location}\n${loc.location_hit_count} detections, peak ${loc.peak_in_window} in 10 min`;
+                        el.title = `${plate} — ${loc.camera_location}\n${loc.location_hit_count} detections, max ${loc.peak_in_window} km in 10 min`;
 
                         const popup = new mapboxgl.Popup({ offset: 20 }).setHTML(`
                             <div style="font-family:-apple-system,sans-serif;min-width:180px;">
@@ -2607,13 +2705,12 @@
                                     <div><b>Camera:</b> ${loc.camera_name}</div>
                                     <div><b>Location:</b> ${loc.camera_location}</div>
                                     <div><b>Hits here:</b> ${loc.location_hit_count}</div>
-                                    <div><b>Peak 10-min burst:</b> ${loc.peak_in_window}</div>
+                                    <div><b>Max travel in 10 min:</b> ${loc.peak_in_window} km</div>
                                     <div><b>Last seen:</b> ${formatToPacificTime(loc.last_seen)}</div>
                                 </div>
                             </div>
                         `);
 
-                        // Jitter to prevent stacking when multiple plates share a camera
                         const jitter = () => (Math.random() - 0.5) * 0.0006;
                         const marker = new mapboxgl.Marker({ element: el })
                             .setLngLat([loc.longitude + jitter(), loc.latitude + jitter()])
@@ -2622,7 +2719,6 @@
                         unknownMarkers.push(marker);
                     });
 
-                    // Add legend entry
                     const entry = document.createElement('div');
                     entry.className = 'legend-plate';
                     entry.innerHTML = `
@@ -2632,9 +2728,8 @@
                             ${isRecent ? '<span class="legend-plate-recent">LIVE</span>' : ''}
                         </div>
                         <div class="legend-plate-meta">
-                            ${locs.length} camera${locs.length !== 1 ? 's' : ''} · peak ${peak} in 10 min · last ${formatToPacificTime(lastSeen)}
+                            ${locs.length} camera${locs.length !== 1 ? 's' : ''} · ${peak} km in 10 min · last ${formatToPacificTime(lastSeen)}
                         </div>`;
-                    // clicking a legend entry flies to first detection location
                     entry.addEventListener('click', () => {
                         map.flyTo({ center: [locs[0].longitude, locs[0].latitude], zoom: 15 });
                     });
@@ -2852,15 +2947,41 @@
             return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
         }
 
+        // Auto-refresh every 15 seconds
+        function startAutoRefresh() {
+            clearInterval(autoRefreshTimer);
+            clearInterval(countdownTimer);
+            autoRefreshCountdown = 120;
+            updateCountdownBadge();
+
+            countdownTimer = setInterval(() => {
+                autoRefreshCountdown--;
+                updateCountdownBadge();
+                if (autoRefreshCountdown <= 0) {
+                    autoRefreshCountdown = 120;
+                    loadDetections();
+                    loadPersonDetections();
+                    if (unknownActivityVisible) loadUnknownActivity();
+                }
+            }, 1000);
+        }
+
+        function updateCountdownBadge() {
+            const el = document.getElementById('autoRefreshBadge');
+            if (el) el.textContent = `↻ ${autoRefreshCountdown}s`;
+        }
+
         // Initialize the application
         map.on('load', function() {
             initializeDates();
             loadCameras();
             loadDetections();
+            loadPersonDetections();
             setupPlateSearchHandlers();
             setupNavigation();
             // Start with unknown activity visible
             toggleUnknownActivity();
+            startAutoRefresh();
         });
 
         // Add keyboard shortcuts

@@ -46,7 +46,8 @@ def query_detections(
     end_date: Optional[str] = None,
     limit: int = 100,
     camera_location: Optional[str] = None,
-    unknown_only: bool = False
+    unknown_only: bool = False,
+    plate_number: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Query detection data with camera information from BigQuery.
     
@@ -131,7 +132,11 @@ def query_detections(
         if camera_location:
             conditions.append("LOWER(camera_location) LIKE LOWER(@camera_location)")
             params['camera_location'] = f"%{camera_location}%"
-        
+
+        if plate_number:
+            conditions.append("UPPER(plate_number) = @plate_number")
+            params['plate_number'] = plate_number.upper().strip()
+
         # Only include detections with valid coordinates
         conditions.append("latitude IS NOT NULL AND longitude IS NOT NULL")
         
@@ -196,19 +201,21 @@ def api_detections():
         limit = int(request.args.get('limit', 100))
         camera_location = request.args.get('camera_location')
         unknown_only = request.args.get('unknown_only', '').lower() == 'true'
-        
+        plate_number = request.args.get('plate_number', '').strip() or None
+
         # Default to last 7 days if no dates specified
         if not start_date and not end_date:
             end_date = datetime.now().strftime('%Y-%m-%d')
             start_date = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
-        
+
         # Query detections
         detections = query_detections(
             start_date=start_date,
             end_date=end_date,
             limit=limit,
             camera_location=camera_location,
-            unknown_only=unknown_only
+            unknown_only=unknown_only,
+            plate_number=plate_number,
         )
         
         return jsonify({
@@ -475,17 +482,18 @@ def api_plate_detections(plate_number):
 
 @app.route('/api/unknown-activity')
 def api_unknown_activity():
-    """Return unknown plates that exceeded 10 detections in any 10-minute window
-    within the past N hours (default 24), grouped by plate + camera location.
+    """Return unknown plates that traveled more than 2.5 km in any 10-minute window
+    within the past N hours (default 3), grouped by plate + camera location.
 
+    Distance is estimated by summing haversine distances between consecutive camera
+    hits (ordered by timestamp) within each 10-minute rolling window.
     'Unknown' means the plate has been seen on fewer than 20 distinct calendar days.
-    Matches the same threshold used by the real-time Telegram alert logic.
     """
     try:
         try:
             hours = max(1, min(int(request.args.get('hours', 3)), 168))
         except (ValueError, TypeError):
-            hours = 24
+            hours = 3
 
         query = f"""
         WITH unknown_plates AS (
@@ -509,18 +517,44 @@ def api_unknown_activity():
             LEFT JOIN `{PROJECT_ID}.{DATASET_ID}.camera_lookup` c ON d.device_id = c.device_id
             WHERE d.detection_timestamp >= DATETIME_SUB(CURRENT_DATETIME(), INTERVAL {hours} HOUR)
               AND d.plate_number IS NOT NULL AND d.plate_number != ''
+              AND c.latitude IS NOT NULL AND c.longitude IS NOT NULL
+        ),
+        with_step AS (
+            -- Attach previous hit's coordinates and timestamp per plate
+            SELECT *,
+                LAG(latitude)  OVER (PARTITION BY plate_number ORDER BY detection_timestamp) AS prev_lat,
+                LAG(longitude) OVER (PARTITION BY plate_number ORDER BY detection_timestamp) AS prev_lng,
+                LAG(detection_timestamp) OVER (PARTITION BY plate_number ORDER BY detection_timestamp) AS prev_ts
+            FROM recent
+        ),
+        with_distance AS (
+            -- Haversine distance (km) for each leg, only when gap <= 10 min and cameras differ
+            SELECT *,
+                CASE
+                    WHEN prev_lat IS NOT NULL AND prev_lng IS NOT NULL
+                     AND DATETIME_DIFF(detection_timestamp, prev_ts, SECOND) <= 600
+                     AND (latitude != prev_lat OR longitude != prev_lng)
+                    THEN 2 * 6371 * ASIN(SQRT(
+                        POW(SIN((latitude  - prev_lat) * ACOS(-1.0) / 360.0), 2) +
+                        COS(prev_lat  * ACOS(-1.0) / 180.0) * COS(latitude * ACOS(-1.0) / 180.0) *
+                        POW(SIN((longitude - prev_lng) * ACOS(-1.0) / 360.0), 2)
+                    ))
+                    ELSE 0.0
+                END AS step_km
+            FROM with_step
         ),
         windowed AS (
+            -- Rolling 10-minute sum of distances per plate
             SELECT *,
-                COUNT(*) OVER (
+                SUM(step_km) OVER (
                     PARTITION BY plate_number
                     ORDER BY UNIX_SECONDS(TIMESTAMP(detection_timestamp))
                     RANGE BETWEEN 600 PRECEDING AND CURRENT ROW
-                ) AS detections_in_10min
-            FROM recent
+                ) AS km_in_10min
+            FROM with_distance
         ),
         qualifying AS (
-            SELECT * FROM windowed WHERE detections_in_10min > 10
+            SELECT * FROM windowed WHERE km_in_10min > 2.5
         )
         SELECT
             plate_number,
@@ -528,14 +562,13 @@ def api_unknown_activity():
             camera_location,
             latitude,
             longitude,
-            MAX(detections_in_10min)                                                    AS peak_in_window,
-            COUNT(*)                                                                     AS location_hit_count,
-            MIN(detection_timestamp)                                                     AS first_seen,
-            MAX(detection_timestamp)                                                     AS last_seen,
+            ROUND(MAX(km_in_10min), 2)                                                   AS peak_in_window,
+            COUNT(*)                                                                      AS location_hit_count,
+            MIN(detection_timestamp)                                                      AS first_seen,
+            MAX(detection_timestamp)                                                      AS last_seen,
             MAX(detection_timestamp) >= DATETIME_SUB(CURRENT_DATETIME(), INTERVAL 10 MINUTE)
-                                                                                         AS is_recent
+                                                                                          AS is_recent
         FROM qualifying
-        WHERE latitude IS NOT NULL AND longitude IS NOT NULL
         GROUP BY plate_number, camera_name, camera_location, latitude, longitude
         ORDER BY is_recent DESC, peak_in_window DESC, plate_number, last_seen DESC
         """
@@ -914,6 +947,44 @@ def api_plate_detections_search():
 
         return jsonify({'success': True, 'detections': detections, 'count': len(detections)})
 
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/person-detections')
+def api_person_detections():
+    """Return person detections from the last 5 minutes with camera coordinates."""
+    try:
+        query = f"""
+        SELECT
+            p.record_id,
+            p.detection_timestamp,
+            p.detection_type,
+            p.camera_name,
+            p.camera_location,
+            p.thumbnail_url,
+            c.latitude,
+            c.longitude
+        FROM `{PROJECT_ID}.{DATASET_ID}.person_detections` p
+        LEFT JOIN `{PROJECT_ID}.{DATASET_ID}.camera_lookup` c ON p.device_id = c.device_id
+        WHERE p.detection_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 5 MINUTE)
+          AND c.latitude IS NOT NULL AND c.longitude IS NOT NULL
+        ORDER BY p.detection_timestamp DESC
+        """
+        rows = client.query(query).result()
+        results = []
+        for row in rows:
+            results.append({
+                'record_id': row.record_id,
+                'detection_timestamp': format_timestamp_as_utc(row.detection_timestamp),
+                'detection_type': row.detection_type or 'person',
+                'camera_name': row.camera_name or '',
+                'camera_location': row.camera_location or '',
+                'thumbnail_url': row.thumbnail_url or '',
+                'latitude': float(row.latitude),
+                'longitude': float(row.longitude),
+            })
+        return jsonify({'success': True, 'detections': results, 'count': len(results)})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 

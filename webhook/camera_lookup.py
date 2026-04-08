@@ -30,12 +30,14 @@ class CameraLookup:
         try:
             table = f"`{self.project_id}.{self.dataset_id}.{CAMERA_LOOKUP_TABLE}`"
             rows = self.bq.query(
-                f"SELECT device_id, camera_name, camera_location FROM {table}"
+                f"SELECT device_id, camera_name, camera_location, latitude, longitude FROM {table}"
             ).result()
             self._cameras = {
                 row.device_id: {
                     "camera_name": row.camera_name or "",
                     "camera_location": row.camera_location or "",
+                    "latitude": row.latitude,
+                    "longitude": row.longitude,
                 }
                 for row in rows
             }
@@ -54,3 +56,11 @@ class CameraLookup:
     def camera_location(self, device_id: str) -> str:
         entry = self._cameras.get(device_id)
         return entry["camera_location"] if entry else ""
+
+    def camera_lat(self, device_id: str) -> Optional[float]:
+        entry = self._cameras.get(device_id)
+        return entry["latitude"] if entry else None
+
+    def camera_lng(self, device_id: str) -> Optional[float]:
+        entry = self._cameras.get(device_id)
+        return entry["longitude"] if entry else None

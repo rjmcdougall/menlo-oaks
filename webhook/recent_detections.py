@@ -7,10 +7,21 @@ briefly — only plates seen more than a threshold number of times within the
 window are considered worth alerting on.
 """
 
+import math
 import threading
 from collections import defaultdict, deque
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
+
+
+def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """Return the great-circle distance in km between two GPS coordinates."""
+    R = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlng = math.radians(lng2 - lng1)
+    a = (math.sin(dlat / 2) ** 2 +
+         math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlng / 2) ** 2)
+    return 2 * R * math.asin(math.sqrt(a))
 
 
 class RecentDetectionTracker:
@@ -66,6 +77,27 @@ class RecentDetectionTracker:
     def exceeds_threshold(self, plate_number: str) -> bool:
         """Return True if the plate has been seen more than threshold times in the window."""
         return self.count(plate_number) > self.threshold
+
+    def max_distance_km(self, plate_number: str) -> float:
+        """Return total haversine distance (km) traveled by this plate within the rolling window."""
+        now = datetime.now(tz=timezone.utc)
+        plate = plate_number.upper().strip()
+        with self._lock:
+            self._prune(plate, now)
+            entries = [e for e in self._detections[plate]
+                       if e["lat"] is not None and e["lng"] is not None]
+        if len(entries) < 2:
+            return 0.0
+        total = 0.0
+        for i in range(1, len(entries)):
+            prev, curr = entries[i - 1], entries[i]
+            if prev["lat"] != curr["lat"] or prev["lng"] != curr["lng"]:
+                total += _haversine_km(prev["lat"], prev["lng"], curr["lat"], curr["lng"])
+        return total
+
+    def exceeds_distance_threshold(self, plate_number: str, threshold_km: float = 2.5) -> bool:
+        """Return True if the plate has traveled more than threshold_km in the rolling window."""
+        return self.max_distance_km(plate_number) > threshold_km
 
     def get_locations(self, plate_number: str) -> List[dict]:
         """

@@ -16,6 +16,7 @@ from bigquery_client import BigQueryClient
 from gcs_client import GCSClient
 from config import Config
 from face_webhook import FaceDetectionHandler
+from person_webhook import PersonDetectionHandler
 from photos_client import GooglePhotosClient
 from stolen_plates import StolenPlatesChecker
 from known_plates import KnownPlatesChecker
@@ -74,6 +75,7 @@ face_handler = FaceDetectionHandler(
     photos_client=_photos_client,
 )
 
+
 # Initialize stolen plates checker
 stolen_checker = StolenPlatesChecker(
     project_id=config.GCP_PROJECT_ID,
@@ -103,6 +105,16 @@ if config.TELEGRAM_BOT_TOKEN and config.TELEGRAM_CHAT_ID:
     logger.info("Telegram client initialized")
 else:
     logger.warning("Telegram credentials not configured — stolen plate alerts will not be sent")
+
+# Initialize person detection handler now that camera_lookup and telegram are ready
+_person_handler = PersonDetectionHandler(
+    project_id=config.GCP_PROJECT_ID,
+    dataset_id=config.BIGQUERY_DATASET,
+    gcs_client=gcs_client,
+    camera_lookup=camera_lookup,
+    telegram_client=_telegram_client,
+    mapbox_token=config.MAPBOX_ACCESS_TOKEN or "",
+)
 
 
 @functions_framework.http
@@ -136,6 +148,10 @@ def main(request: Request) -> Dict[str, Any]:
         # Face detection webhook endpoint
         if path.endswith('/face') and method == 'POST':
             return face_detection_webhook(request)
+
+        # Person detection webhook endpoint
+        if path.endswith('/person') and method == 'POST':
+            return person_detection_webhook(request)
 
         # Stolen plates management endpoints
         if path.endswith('/stolen'):
@@ -193,6 +209,39 @@ def face_detection_webhook(request: Request) -> Dict[str, Any]:
 
     except Exception as e:
         logger.error(f"Unexpected error processing face webhook: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": "Internal server error"}), 500
+
+
+def person_detection_webhook(request: Request) -> Dict[str, Any]:
+    """Process UniFi Protect person detection alarm callbacks."""
+    try:
+        if not request.is_json:
+            return jsonify({"error": "Request must be JSON"}), 400
+
+        payload = request.get_json()
+        if not payload:
+            return jsonify({"error": "Empty request body"}), 400
+
+        logger.info("Received person detection webhook")
+        triggers = payload.get("alarm", {}).get("triggers", [])
+        trigger_keys = [t.get("key", "") for t in triggers]
+        logger.info(f"Person webhook trigger keys: {trigger_keys}")
+
+        if config.WEBHOOK_SECRET:
+            if not validate_webhook_signature(request, config.WEBHOOK_SECRET):
+                logger.warning("Invalid webhook signature")
+                return jsonify({"error": "Invalid signature"}), 401
+
+        result = _person_handler.process(payload)
+
+        return jsonify({
+            "status": "success",
+            "processed": result["processed"],
+            "errors": result.get("errors", []),
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Unexpected error processing person webhook: {e}", exc_info=True)
         return jsonify({"status": "error", "message": "Internal server error"}), 500
 
 
@@ -376,9 +425,11 @@ def process_license_plate_detection(webhook_data: Dict[str, Any]) -> Dict[str, A
             record_ids.append(record_id)
             plate_numbers.append(plate_info["plate_number"])
 
-            # Grab camera coordinates for map images
-            cam_lat = enriched_plate.get("latitude")
-            cam_lng = enriched_plate.get("longitude")
+            # Grab camera coordinates for map images — prefer camera_lookup table
+            # (alarm-format webhooks have no location field)
+            device_id = enriched_plate.get("camera_id") or enriched_plate.get("device_id")
+            cam_lat = camera_lookup.camera_lat(device_id) if device_id else enriched_plate.get("latitude")
+            cam_lng = camera_lookup.camera_lng(device_id) if device_id else enriched_plate.get("longitude")
             cam_name = enriched_plate.get("camera_name")
 
             # Check stolen plates registry and alert via Telegram if matched
@@ -396,11 +447,12 @@ def process_license_plate_detection(webhook_data: Dict[str, Any]) -> Dict[str, A
                         recent_count=stolen_recent,
                     )
 
-            # Alert on unknown plates seen >10 times in the last 10 minutes
+            # Alert on unknown plates that traveled >2.5 km in the last 10 minutes
             elif known_checker.is_unknown(plate_number):
                 recent_count = recent_tracker.record(plate_number, lat=cam_lat, lng=cam_lng, camera_name=cam_name)
-                if recent_tracker.exceeds_threshold(plate_number):
-                    logger.info(f"🔍 UNKNOWN PLATE ALERT: {plate_number} ({recent_count} times in last 10 min)")
+                dist_km = recent_tracker.max_distance_km(plate_number)
+                if recent_tracker.exceeds_distance_threshold(plate_number):
+                    logger.info(f"🔍 UNKNOWN PLATE ALERT: {plate_number} ({dist_km:.2f} km in last 10 min)")
                     if _telegram_client:
                         _telegram_client.send_unknown_plate_alert(
                             plate_number=plate_number,
@@ -414,7 +466,7 @@ def process_license_plate_detection(webhook_data: Dict[str, Any]) -> Dict[str, A
                             mapbox_token=config.MAPBOX_ACCESS_TOKEN or None,
                         )
                 else:
-                    logger.debug(f"🔍 Unknown plate {plate_number} seen {recent_count}/10 times — not yet alerting")
+                    logger.debug(f"🔍 Unknown plate {plate_number} seen {recent_count} times, {dist_km:.2f} km in last 10 min — not yet alerting")
         
         return {
             "success": True,

@@ -68,9 +68,18 @@ COUNT(*) OVER (
 - **Stats dashboard** — totals, active cameras, unique plates
 - **Settings tab** — full CRUD editor for `camera_lookup` table; unregistered device_ids (in detections but not camera_lookup) highlighted amber with detection counts
 
+## Deployment
+
+Always deploy with all three env vars — `--set-env-vars` replaces everything, so missing vars go empty:
+
+```bash
+cd webserver
+MAPBOX_ACCESS_TOKEN='YOUR_MAPBOX_TOKEN' GCP_PROJECT_ID=menlo-oaks bash deploy.sh
+```
+
 ## Local Development
 
 ```bash
-GCP_PROJECT_ID=menlo-oaks BIGQUERY_DATASET=license_plates MAPBOX_ACCESS_TOKEN=<token> python main.py
+GCP_PROJECT_ID=menlo-oaks BIGQUERY_DATASET=license_plates MAPBOX_ACCESS_TOKEN='YOUR_MAPBOX_TOKEN' python main.py
 ```
 Serves on `http://localhost:8080`.
