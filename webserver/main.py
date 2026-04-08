@@ -989,6 +989,42 @@ def api_person_detections():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/burglar-alarms')
+def api_burglar_alarms():
+    """Return burglar alarms from the last 5 minutes with camera coordinates."""
+    try:
+        query = f"""
+        SELECT
+            b.record_id,
+            b.detection_timestamp,
+            b.camera_name,
+            b.camera_location,
+            b.thumbnail_url,
+            c.latitude,
+            c.longitude
+        FROM `{PROJECT_ID}.{DATASET_ID}.burglar_alarms` b
+        LEFT JOIN `{PROJECT_ID}.{DATASET_ID}.camera_lookup` c ON b.device_id = c.device_id
+        WHERE b.detection_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 5 MINUTE)
+          AND c.latitude IS NOT NULL AND c.longitude IS NOT NULL
+        ORDER BY b.detection_timestamp DESC
+        """
+        rows = client.query(query).result()
+        results = []
+        for row in rows:
+            results.append({
+                'record_id': row.record_id,
+                'detection_timestamp': format_timestamp_as_utc(row.detection_timestamp),
+                'camera_name': row.camera_name or '',
+                'camera_location': row.camera_location or '',
+                'thumbnail_url': row.thumbnail_url or '',
+                'latitude': float(row.latitude),
+                'longitude': float(row.longitude),
+            })
+        return jsonify({'success': True, 'alarms': results, 'count': len(results)})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/static/<path:filename>')
 def serve_static(filename):
     """Serve static files."""

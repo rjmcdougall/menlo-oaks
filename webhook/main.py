@@ -15,6 +15,7 @@ from flask import Request, jsonify
 from bigquery_client import BigQueryClient
 from gcs_client import GCSClient
 from config import Config
+from burglar_webhook import BurglarAlarmHandler
 from face_webhook import FaceDetectionHandler
 from person_webhook import PersonDetectionHandler
 from photos_client import GooglePhotosClient
@@ -106,6 +107,16 @@ if config.TELEGRAM_BOT_TOKEN and config.TELEGRAM_CHAT_ID:
 else:
     logger.warning("Telegram credentials not configured — stolen plate alerts will not be sent")
 
+# Initialize burglar alarm handler
+_burglar_handler = BurglarAlarmHandler(
+    project_id=config.GCP_PROJECT_ID,
+    dataset_id=config.BIGQUERY_DATASET,
+    gcs_client=gcs_client,
+    camera_lookup=camera_lookup,
+    telegram_client=_telegram_client,
+    mapbox_token=config.MAPBOX_ACCESS_TOKEN or "",
+)
+
 # Initialize person detection handler now that camera_lookup and telegram are ready
 _person_handler = PersonDetectionHandler(
     project_id=config.GCP_PROJECT_ID,
@@ -145,11 +156,14 @@ def main(request: Request) -> Dict[str, Any]:
         if path.endswith('/api') and method == 'GET':
             return api_description(request)
 
-        # Face detection webhook endpoint
+        # Unified alarm webhook — dispatches to all relevant handlers by trigger key
+        if path.endswith('/alarm') and method == 'POST':
+            return alarm_webhook(request)
+
+        # Individual endpoints kept for backward compatibility
         if path.endswith('/face') and method == 'POST':
             return face_detection_webhook(request)
 
-        # Person detection webhook endpoint
         if path.endswith('/person') and method == 'POST':
             return person_detection_webhook(request)
 
@@ -162,9 +176,9 @@ def main(request: Request) -> Dict[str, Any]:
             if method == 'DELETE':
                 return stolen_plate_remove(request)
 
-        # License plate webhook endpoint (default)
+        # Default: unified alarm handler (handles license plate, person, face)
         if method == 'POST':
-            return license_plate_webhook(request)
+            return alarm_webhook(request)
         
         # Invalid route/method combination
         logger.warning(f"Invalid request: {method} {path}")
@@ -180,6 +194,59 @@ def main(request: Request) -> Dict[str, Any]:
             "status": "error",
             "message": "Internal server error in request router"
         }), 500
+
+
+def alarm_webhook(request: Request) -> Dict[str, Any]:
+    """Unified alarm webhook — dispatches a single payload to all relevant handlers.
+
+    UniFi Protect sends the same envelope regardless of detection type; only
+    trigger.key differs.  Each handler filters its own keys internally, so we
+    can safely pass the payload to all three and collect their results.
+    """
+    try:
+        if not request.is_json:
+            return jsonify({"error": "Request must be JSON"}), 400
+
+        payload = request.get_json()
+        if not payload:
+            return jsonify({"error": "Empty request body"}), 400
+
+        if config.WEBHOOK_SECRET:
+            if not validate_webhook_signature(request, config.WEBHOOK_SECRET):
+                logger.warning("Invalid webhook signature")
+                return jsonify({"error": "Invalid signature"}), 401
+
+        trigger_keys = [t.get("key", "") for t in payload.get("alarm", {}).get("triggers", [])]
+        logger.info(f"Unified alarm webhook trigger keys: {trigger_keys}")
+
+        results = {}
+
+        # License plate
+        lp_result = process_license_plate_detection(payload)
+        if lp_result.get("success") or lp_result.get("total_plates", 0) > 0:
+            results["license_plate"] = lp_result
+
+        # Person
+        person_result = _person_handler.process(payload)
+        if person_result.get("processed", 0) > 0:
+            results["person"] = person_result
+
+        # Face
+        face_result = face_handler.process(payload)
+        if face_result.get("processed", 0) > 0:
+            results["face"] = face_result
+
+        # Burglar
+        burglar_result = _burglar_handler.process(payload)
+        if burglar_result.get("processed", 0) > 0:
+            results["burglar"] = burglar_result
+
+        logger.info(f"Unified alarm processed: {list(results.keys()) or 'no matching handlers'}")
+        return jsonify({"status": "success", "results": results}), 200
+
+    except Exception as e:
+        logger.error(f"Unexpected error processing alarm webhook: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": "Internal server error"}), 500
 
 
 def face_detection_webhook(request: Request) -> Dict[str, Any]:
